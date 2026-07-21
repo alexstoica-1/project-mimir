@@ -1,0 +1,70 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Conda environments and metadata
+.conda/
+conda-meta/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Logs
+logs/
+*.log
+
+# Local data files
+data/interim/*
+data/raw/*
+data/processed/*
+!data/interim/.gitkeep
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Trained models and ML artifacts
+models/*
+!models/.gitkeep
+mlruns/
+mlartifacts/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Test coverage and build artifacts
+.coverage
+htmlcov/
+coverage.xml
+build/
+dist/
+*.egg-info/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Docker overrides and runtime files
+docker-compose.override.yml
+*.pid
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
