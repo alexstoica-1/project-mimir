@@ -269,8 +269,8 @@ class YFinanceCollector:
             level_values = {str(value).upper() for value in prices.columns.get_level_values(level)}
             if ticker in level_values:
                 selected = prices.xs(ticker, axis=1, level=level, drop_level=True)
-                selected.columns = [str(column) for column in selected.columns]
-                return selected
+                selected.columns = [str(column) for column in selected.columns] # type: ignore
+                return selected # type: ignore
 
         for level in range(prices.columns.nlevels):
             if len(prices.columns.get_level_values(level).unique()) == 1:
@@ -281,7 +281,7 @@ class YFinanceCollector:
         flattened = prices.copy()
         flattened.columns = [
             "_".join(str(part) for part in column if str(part))
-            for column in flattened.columns.to_flat_index()
+            for column in flattened.columns.to_flat_index() # type: ignore
         ]
         return flattened
 
