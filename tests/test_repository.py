@@ -14,12 +14,12 @@ from src.database.repository import MarketRepository
 
 
 @pytest.fixture()
-def session() -> Session:
+def session() -> Session: # type: ignore
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     SessionLocal = sessionmaker(bind=engine)
     with SessionLocal() as db_session:
-        yield db_session
+        yield db_session # type: ignore
 
 
 @pytest.fixture()
