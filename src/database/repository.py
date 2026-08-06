@@ -47,6 +47,7 @@ class MarketRepository:
         "market_cap",
         "source",
     ]
+    PRICE_HISTORY_COLUMNS = PRICE_FIELDS.copy()
 
     def __init__(self, session: Session) -> None:
         """Create a repository using a caller-managed SQLAlchemy session."""
@@ -249,6 +250,56 @@ class MarketRepository:
 
         stmt = stmt.order_by(DailyPrice.date.asc())
         return list(self.session.scalars(stmt).all())
+
+    def list_available_companies(self, source: str = "yfinance") -> list[str]:
+        """Return normalized tickers with persisted prices for a source.
+
+        The list is ordered deterministically and only includes companies that
+        have at least one daily-price row matching ``source``.
+        """
+
+        stmt = (
+            select(Company.ticker)
+            .join(DailyPrice, DailyPrice.ticker == Company.ticker)
+            .where(DailyPrice.source == source)
+            .distinct()
+            .order_by(Company.ticker.asc())
+        )
+        return list(self.session.scalars(stmt).all())
+
+    def get_price_history_frame(
+        self,
+        ticker: str,
+        *,
+        start: date | str | None = None,
+        end: date | str | None = None,
+        source: str = "yfinance",
+    ) -> pd.DataFrame:
+        """Return a deterministic daily-price DataFrame for feature consumers.
+
+        Columns are ordered according to :attr:`PRICE_HISTORY_COLUMNS`; rows
+        are ordered by ascending date and filtered by ticker, optional inclusive
+        date bounds, and source.
+        """
+
+        prices = self.get_prices(ticker, start=start, end=end, source=source)
+        rows = [
+            {
+                "ticker": price.ticker,
+                "date": price.date,
+                "open": price.open,
+                "high": price.high,
+                "low": price.low,
+                "close": price.close,
+                "adjusted_close": price.adjusted_close,
+                "volume": price.volume,
+                "dividends": price.dividends,
+                "stock_splits": price.stock_splits,
+                "source": price.source,
+            }
+            for price in prices
+        ]
+        return pd.DataFrame(rows, columns=self.PRICE_HISTORY_COLUMNS)
 
     def _get_price(self, ticker: str, price_date: date, source: str) -> DailyPrice | None:
         stmt = select(DailyPrice).where(

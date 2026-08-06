@@ -128,6 +128,28 @@ def test_retrieving_prices(repository: MarketRepository) -> None:
     assert prices[0].date == date(2024, 1, 3)
 
 
+def test_price_history_frame_has_deterministic_schema_and_filters(repository: MarketRepository) -> None:
+    repository.create_company(company_metadata())
+    repository.insert_daily_prices(daily_prices())
+
+    history = repository.get_price_history_frame("aapl", start="2024-01-03", source="yfinance")
+
+    assert list(history.columns) == repository.PRICE_HISTORY_COLUMNS
+    assert history["ticker"].tolist() == ["AAPL"]
+    assert history["date"].tolist() == [date(2024, 1, 3)]
+
+
+def test_list_available_companies_only_returns_tickers_with_source_prices(
+    repository: MarketRepository,
+) -> None:
+    repository.create_company(company_metadata(ticker="AAPL"))
+    repository.create_company(company_metadata(ticker="MSFT"))
+    repository.insert_daily_prices(daily_prices())
+
+    assert repository.list_available_companies(source="yfinance") == ["AAPL"]
+    assert repository.list_available_companies(source="other") == []
+
+
 def test_retrieving_company(repository: MarketRepository) -> None:
     repository.create_company(company_metadata())
 
