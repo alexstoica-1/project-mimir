@@ -70,6 +70,7 @@ requests==2.34.2
 rich==15.0.0
 scikit-learn==1.9.0
 scipy==1.17.1
+seaborn==0.13.2
 six @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_six_1753199211/work
 soupsieve==2.9
 SQLAlchemy==2.0.51
