@@ -23,6 +23,7 @@ from src.features.market_features import (
 from src.features.pipeline import (
     BASE_PRICE_COLUMNS,
     FEATURE_COLUMNS,
+    INFERENCE_OUTPUT_COLUMNS,
     OUTPUT_COLUMNS,
     MarketFeaturePipeline,
     validate_and_sort_raw_data,
@@ -254,6 +255,17 @@ def test_model_ready_output_has_documented_columns_and_no_missing_features() -> 
     assert list(features.columns) == OUTPUT_COLUMNS
     assert len(features) > 0
     assert features[[*FEATURE_COLUMNS, "target_rv_20d"]].notna().all().all()
+
+
+def test_inference_output_keeps_latest_complete_feature_row_without_target() -> None:
+    raw = synthetic_market_data("AAPL", periods=130)
+
+    features = MarketFeaturePipeline.transform_price_history(raw, inference_ready=True)
+
+    assert list(features.columns) == INFERENCE_OUTPUT_COLUMNS
+    assert "target_rv_20d" not in features.columns
+    assert features[FEATURE_COLUMNS].notna().all().all()
+    assert features["date"].max() == raw.loc[raw["ticker"].eq("AAPL"), "date"].max()
 
 
 def test_transform_does_not_mutate_source_price_history() -> None:

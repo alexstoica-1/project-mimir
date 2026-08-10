@@ -1,0 +1,11 @@
+fastapi==0.139.2
+joblib==1.5.3
+lightgbm==4.7.0
+numpy==2.4.6
+pandas==2.3.3
+psycopg2-binary==2.9.12
+pydantic==2.13.4
+pydantic-settings==2.14.2
+scikit-learn==1.9.0
+SQLAlchemy==2.0.51
+uvicorn==0.51.0

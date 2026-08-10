@@ -1,0 +1,160 @@
+"""Application service for serving the deployed global LightGBM model."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date
+from hashlib import sha256
+from pathlib import Path
+
+import numpy as np
+
+from src.features.pipeline import FEATURE_COLUMNS, MarketFeaturePipeline
+from src.ml.lightgbm_model import LightGBMRegressorModel
+
+MINIMUM_PRICE_OBSERVATIONS = 61
+FORECAST_HORIZON_TRADING_DAYS = 20
+
+
+class PredictionServiceError(Exception):
+    """Base class for expected prediction-service failures."""
+
+
+class TickerNotFoundError(PredictionServiceError):
+    """Raised when no persisted market data exists for a ticker."""
+
+
+class UnsupportedTickerError(PredictionServiceError):
+    """Raised when a ticker was not present in model training."""
+
+
+class InsufficientHistoryError(PredictionServiceError):
+    """Raised when an asset does not have enough price history for features."""
+
+
+class MissingMarketContextError(PredictionServiceError):
+    """Raised when the latest asset date lacks SPY or VIX feature context."""
+
+
+class PredictionUnavailableError(PredictionServiceError):
+    """Raised when an artifact cannot produce a valid forecast."""
+
+
+@dataclass(frozen=True)
+class ModelMetadata:
+    """Stable, response-safe metadata for the deployed artifact."""
+
+    name: str
+    version: str
+    artifact_name: str
+    supported_tickers: tuple[str, ...]
+    feature_count: int
+    training_parameters: dict[str, object]
+
+
+@dataclass(frozen=True)
+class VolatilityPrediction:
+    """One latest-date global LightGBM volatility forecast."""
+
+    ticker: str
+    as_of_date: date
+    predicted_rv_20d: float
+    model: ModelMetadata
+
+
+def build_model_metadata(
+    model: LightGBMRegressorModel,
+    artifact_path: str | Path,
+) -> ModelMetadata:
+    """Build metadata from a loaded global LightGBM artifact."""
+
+    if model.preprocessor is None:
+        raise PredictionUnavailableError("Deployed LightGBM artifact has no fitted preprocessor")
+    path = Path(artifact_path)
+    if not path.is_file():
+        raise PredictionUnavailableError(f"Model artifact does not exist: {path}")
+    tickers = tuple(sorted(str(value) for value in model.preprocessor.ticker_encoder.categories_[0]))
+    return ModelMetadata(
+        name="lightgbm-global",
+        version=sha256(path.read_bytes()).hexdigest()[:12],
+        artifact_name=path.name,
+        supported_tickers=tickers,
+        feature_count=len(FEATURE_COLUMNS),
+        training_parameters=dict(model.params),
+    )
+
+
+class LightGBMVolatilityPredictionService:
+    """Build current causal features from persisted prices and predict volatility."""
+
+    def __init__(
+        self,
+        *,
+        model: LightGBMRegressorModel,
+        metadata: ModelMetadata,
+        repository: object,
+        source: str = "yfinance",
+    ) -> None:
+        self.model = model
+        self.metadata = metadata
+        self.repository = repository
+        self.source = source
+
+    def predict_latest(self, ticker: str) -> VolatilityPrediction:
+        """Predict the next 20-day realized volatility from the latest raw prices."""
+
+        normalized_ticker = self._normalize_ticker(ticker)
+        if not self.repository.company_exists(normalized_ticker):  # type: ignore[attr-defined]
+            raise TickerNotFoundError(f"No persisted market data exists for ticker {normalized_ticker}")
+        if normalized_ticker not in self.metadata.supported_tickers:
+            raise UnsupportedTickerError(
+                f"Ticker {normalized_ticker} is not supported by the deployed model"
+            )
+
+        latest_price_date = self.repository.latest_price_date(normalized_ticker, self.source)  # type: ignore[attr-defined]
+        price_history = self.repository.get_price_history_frame(  # type: ignore[attr-defined]
+            normalized_ticker,
+            source=self.source,
+        )
+        if latest_price_date is None or price_history.empty:
+            raise TickerNotFoundError(f"No persisted {self.source} prices exist for {normalized_ticker}")
+        if len(price_history) < MINIMUM_PRICE_OBSERVATIONS:
+            raise InsufficientHistoryError(
+                f"Ticker {normalized_ticker} needs at least {MINIMUM_PRICE_OBSERVATIONS} price observations"
+            )
+
+        features = MarketFeaturePipeline(self.repository).build_for_ticker(
+            normalized_ticker,
+            source=self.source,
+            inference_ready=True,
+        )
+        if features.empty:
+            raise InsufficientHistoryError(
+                f"Ticker {normalized_ticker} has no complete causal feature row"
+            )
+
+        latest_features = features.iloc[[-1]].copy()
+        as_of_date = latest_features["date"].iloc[0]
+        if hasattr(as_of_date, "date"):
+            as_of_date = as_of_date.date()
+        if as_of_date != latest_price_date:
+            raise MissingMarketContextError(
+                f"Latest {normalized_ticker} price date {latest_price_date} has no matching SPY/VIX context"
+            )
+
+        prediction = float(self.model.predict(latest_features)[0])
+        if not np.isfinite(prediction) or prediction < 0:
+            raise PredictionUnavailableError("Model produced an invalid volatility prediction")
+        return VolatilityPrediction(
+            ticker=normalized_ticker,
+            as_of_date=as_of_date,
+            predicted_rv_20d=prediction,
+            model=self.metadata,
+        )
+
+    @staticmethod
+    def _normalize_ticker(ticker: str) -> str:
+        normalized = ticker.strip().upper()
+        if not normalized:
+            raise TickerNotFoundError("ticker must be a non-empty string")
+        return normalized

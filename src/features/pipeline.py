@@ -97,6 +97,7 @@ STOCK_FEATURE_COLUMNS = (
 )
 MODEL_REQUIRED_COLUMNS = FEATURE_COLUMNS + [TARGET_COLUMN]
 OUTPUT_COLUMNS = BASE_PRICE_COLUMNS + FEATURE_COLUMNS + [TARGET_COLUMN]
+INFERENCE_OUTPUT_COLUMNS = BASE_PRICE_COLUMNS + FEATURE_COLUMNS
 
 if set(FEATURE_COLUMNS) != set(STOCK_FEATURE_COLUMNS + CONTEXT_FEATURE_COLUMNS):
     raise RuntimeError("Feature-column declarations are inconsistent")
@@ -195,6 +196,24 @@ def finalize_modeling_dataset(features: pd.DataFrame) -> pd.DataFrame:
     return result.loc[:, OUTPUT_COLUMNS]
 
 
+def finalize_inference_dataset(features: pd.DataFrame) -> pd.DataFrame:
+    """Keep rows with complete causal inputs, without requiring a future target.
+
+    The target is deliberately unavailable on the newest observations.  Serving
+    must therefore apply the same feature-completeness rule as training while
+    omitting ``target_rv_20d`` from its output.
+    """
+
+    result = features.replace([np.inf, -np.inf], np.nan)
+    result = result.dropna(subset=FEATURE_COLUMNS)
+    result = result.sort_values(["ticker", "date"], kind="stable").reset_index(drop=True)
+    if result["ticker"].isin([SPY_TICKER, VIX_TICKER]).any():
+        raise ValueError("context assets cannot appear as prediction rows")
+    if result.duplicated(subset=["ticker", "date"]).any():
+        raise ValueError("final inference dataset contains duplicate ticker/date rows")
+    return result.loc[:, INFERENCE_OUTPUT_COLUMNS]
+
+
 class MarketFeaturePipeline:
     """Build stock prediction rows enriched with date-aligned SPY/VIX context."""
 
@@ -235,6 +254,7 @@ class MarketFeaturePipeline:
         start: date | str | None = None,
         end: date | str | None = None,
         source: str = "yfinance",
+        inference_ready: bool = False,
     ) -> pd.DataFrame:
         """Build one prediction ticker with SPY and VIX context loaded alongside it."""
 
@@ -246,6 +266,7 @@ class MarketFeaturePipeline:
             start=start,
             end=end,
             source=source,
+            inference_ready=inference_ready,
         )
         logger.info("Built %s feature rows for ticker=%s", len(features), normalized_ticker)
         return features
@@ -257,6 +278,7 @@ class MarketFeaturePipeline:
         start: date | str | None = None,
         end: date | str | None = None,
         source: str = "yfinance",
+        inference_ready: bool = False,
     ) -> pd.DataFrame:
         """Build prediction assets together, using SPY/VIX only as context."""
 
@@ -273,7 +295,7 @@ class MarketFeaturePipeline:
             }
         )
         if not prediction_tickers:
-            return self.empty_output_frame()
+            return self.empty_inference_frame() if inference_ready else self.empty_output_frame()
 
         raw_prices = self.load_price_data(
             [*prediction_tickers, SPY_TICKER, VIX_TICKER],
@@ -281,7 +303,7 @@ class MarketFeaturePipeline:
             end=end,
             source=source,
         )
-        return self.transform_price_history(raw_prices)
+        return self.transform_price_history(raw_prices, inference_ready=inference_ready)
 
     @classmethod
     def transform_price_history(
@@ -289,20 +311,23 @@ class MarketFeaturePipeline:
         prices: pd.DataFrame,
         *,
         model_ready: bool = True,
+        inference_ready: bool = False,
     ) -> pd.DataFrame:
         """Transform normalized long-format stock, SPY, and VIX price history.
 
         With ``model_ready=False``, rolling/context/target NaNs are preserved for
-        inspection. The default applies the single documented final filter.
+        inspection. With ``inference_ready=True``, rows require complete causal
+        features but not a future target, so the most recent usable row remains.
+        The default applies the training-data filter.
         """
 
         normalized = validate_and_sort_raw_data(prices)
         if normalized.empty:
-            return cls.empty_output_frame()
+            return cls.empty_inference_frame() if inference_ready else cls.empty_output_frame()
 
         stocks, spy_prices, vix_prices = split_asset_roles(normalized)
         if stocks.empty:
-            return cls.empty_output_frame()
+            return cls.empty_inference_frame() if inference_ready else cls.empty_output_frame()
 
         stock_features = add_stock_features(stocks)
         spy_features = build_spy_features(spy_prices)
@@ -313,6 +338,8 @@ class MarketFeaturePipeline:
         with_target = with_target.sort_values(["ticker", "date"], kind="stable").reset_index(
             drop=True
         )
+        if inference_ready:
+            return finalize_inference_dataset(with_target)
         if model_ready:
             return finalize_modeling_dataset(with_target)
         return with_target.loc[:, OUTPUT_COLUMNS]
@@ -322,6 +349,12 @@ class MarketFeaturePipeline:
         """Return an empty frame with the documented model-ready schema."""
 
         return pd.DataFrame(columns=OUTPUT_COLUMNS)
+
+    @staticmethod
+    def empty_inference_frame() -> pd.DataFrame:
+        """Return an empty frame matching the inference feature schema."""
+
+        return pd.DataFrame(columns=INFERENCE_OUTPUT_COLUMNS)
 
     @staticmethod
     def save_csv(features: pd.DataFrame, output_path: Path) -> Path:

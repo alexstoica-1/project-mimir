@@ -131,3 +131,42 @@ mlflow ui \
 The workflow trains per-ticker Student-t GARCH(1,1), pooled LightGBM, pooled
 PyTorch LSTM, and optional per-ticker LightGBM models. It logs predictions,
 metrics, feature importance, preprocessing artifacts, and model versions.
+
+## Serving the selected model
+
+The deployed model is the global LightGBM artifact at
+`models/volatility/lightgbm_global.joblib`. The API reads the latest persisted
+OHLCV data for a trained ticker together with SPY and VIX, builds the same
+causal features used for training, and forecasts annualized realized volatility
+for the next 20 trading days.
+
+Start the local stack after the artifact has been trained:
+
+```bash
+docker compose up --build
+```
+
+The model directory is mounted read-only into the API container and stays out
+of Git. Docker initializes an empty PostgreSQL schema on first start; ingest
+market data for a supported ticker plus `SPY` and `^VIX` before requesting a
+forecast. The Compose database is published on host port `5433` to avoid
+clashing with the local PostgreSQL instance normally used during development.
+
+Once data is available, use:
+
+```bash
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/v1/model
+curl -X POST http://127.0.0.1:8000/v1/predictions/AAPL
+```
+
+The API returns `404` for a ticker without persisted prices, and `422` when
+the ticker was not part of model training, has too little history, or lacks
+same-date SPY/VIX market context.
+
+After the final evaluation, record the chosen model in local MLflow:
+
+```bash
+/opt/miniconda3/envs/finance-ml-api/bin/python -m scripts.promote_model \
+  --model-name mimir-lightgbm-global --version 1 --alias champion
+```

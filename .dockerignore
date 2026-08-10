@@ -1,0 +1,13 @@
+.git/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+.env
+data/
+logs/
+mlartifacts/
+mlruns/
+models/
+notebooks/
+tests/
+*.db
