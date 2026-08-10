@@ -37,7 +37,7 @@ TARGET_COLUMN = "target_rv_20d"
 def _positive_log(values: pd.Series) -> pd.Series:
     """Return natural logs for strictly positive values and NaN otherwise."""
 
-    return np.log(values.where(values > 0))
+    return np.log(values.where(values > 0)) # type: ignore
 
 
 def _rolling_by_ticker(
