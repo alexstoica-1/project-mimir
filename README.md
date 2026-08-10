@@ -1,105 +1,118 @@
 # MIMIR
 
-### Market Intelligence & Machine-learning for Investment Research
+Market Intelligence & Machine-learning for Investment Research (MIMIR) is a
+market-data and volatility-forecasting project. It collects daily market data,
+stores it in PostgreSQL, builds causal volatility features, trains forecasting
+models, and serves the selected model through FastAPI.
 
-MIMIR is an end-to-end financial intelligence platform designed to collect, process, analyze, and serve financial market data through modern machine learning pipelines and APIs.
+## Implemented architecture
 
-The platform aims to transform raw financial data into actionable insights by combining automated data collection, robust data engineering, predictive machine learning models, and a production-ready backend architecture.
-
-This project is built as a production-oriented portfolio project with a strong emphasis on software engineering, reproducible machine learning workflows, and scalable system design.
-
----
-
-## Vision
-
-MIMIR aims to become a modular financial intelligence platform capable of:
-
-- Collecting financial and market data from external APIs
-- Storing and managing historical financial datasets
-- Building reproducible feature engineering pipelines
-- Training and evaluating machine learning models
-- Serving predictions through a FastAPI backend
-- Deploying the complete system with Docker
-- Providing an extensible architecture for future AI-powered financial research tools
-
----
-
-## Planned Architecture
-
-```
-                External APIs
-                      │
-                      ▼
-              Data Collection
-                      │
-                      ▼
-                PostgreSQL
-                      │
-                      ▼
-           Data Validation & Cleaning
-                      │
-                      ▼
-           Feature Engineering Pipeline
-                      │
-                      ▼
-              Machine Learning
-                      │
-                      ▼
-             Prediction Service
-                      │
-                      ▼
-                  FastAPI
-                      │
-                      ▼
-                 REST API
+```text
+                    yfinance
+                       |
+                       v
+       YFinanceCollector + YFinanceDataValidator
+                       |
+                       v
+          MarketDataIngestionService
+                       |
+                       v
+        MarketRepository / PostgreSQL
+          |                    |
+          |                    +--> companies, daily_prices, ingestion_runs
+          v
+    MarketFeaturePipeline
+          |
+          +--> model-ready CSV --> GARCH / LightGBM / LSTM training --> MLflow
+          |                                                    |
+          |                                                    v
+          |                                      lightgbm_global.joblib
+          |
+          +--> inference-ready latest feature row --> FastAPI --> prediction JSON
 ```
 
----
+There are two distinct flows:
 
-## Project Structure
+1. **Training:** build a CSV with historical targets, split it chronologically,
+   train and compare models, and save the chosen artifact.
+2. **Serving:** load the saved global LightGBM model once, read the latest
+   PostgreSQL price history, build only causal features, and return a forecast.
 
+The serving flow never requires `target_rv_20d`, because that target represents
+future volatility and is unknown on the latest market date.
+
+## Database schema
+
+PostgreSQL stores normalized source data before feature engineering.
+
+| Table | Purpose | Important fields |
+|---|---|---|
+| `companies` | Company metadata | `ticker` (primary key), company name, exchange, sector, industry, market cap, source, timestamps |
+| `daily_prices` | One daily OHLCV observation | `id`, `ticker` (foreign key), `date`, `open`, `high`, `low`, `close`, `adjusted_close`, `volume`, dividends, splits, source, timestamps |
+| `ingestion_runs` | Audit record for each ingest operation | `id`, ticker, source, status, started/completed time, fetched/written rows, warnings, errors |
+
+`daily_prices` has a unique constraint on `(ticker, date, source)`. Tickers are
+normalized to uppercase. The forecast requires the requested stock, `SPY` for
+market context, and `^VIX` for implied-volatility context.
+
+## Feature and target schema
+
+The training dataset is written to:
+
+```text
+data/processed/v1/features_all_tickers.csv
 ```
-project-mimir/
-│
-├── src/
-│   ├── api/
-│   ├── collectors/
-│   ├── database/
-│   ├── features/
-│   ├── ml/
-│   └── utils/
-│
-├── data/
-│   ├── interim/
-│   ├── processed/
-│   └── raw/
-│
-├── notebooks/
-├── models/
-├── scripts/
-├── tests/
-│
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-└── README.md
+
+It has **42 columns**:
+
+| Group | Columns |
+|---|---|
+| Identity and raw prices | `ticker`, `date`, `open`, `high`, `low`, `close`, `volume`, `adjusted_close`, `source` |
+| Returns | `log_return`, `abs_log_return`, `log_return_squared`, `return_5d`, `return_20d`, `return_60d` |
+| Realized volatility | `rv_5d`, `rv_10d`, `rv_20d`, `rv_60d`, `rv_20d_lag1`, `rv_20d_lag5`, `rv_20d_lag20`, `rv_change_1d`, `vol_of_vol_20d` |
+| Price range and drawdown | `log_high_low`, `log_close_open`, `overnight_gap`, `drawdown`, `max_drawdown_20d`, `max_drawdown_60d` |
+| Volume and return distribution | `volume_ratio_5d`, `volume_ratio_20d`, `volume_volatility_20d`, `rolling_skew_20d`, `rolling_kurtosis_20d` |
+| Market context | `market_return_20d`, `market_rv_20d`, `market_corr_60d`, `vix`, `vix_change_5d`, `vix_minus_market_rv` |
+| Training target | `target_rv_20d` |
+
+`target_rv_20d` is annualized realized volatility calculated from the next 20
+trading days. All input features use data available on or before their own date.
+Rows without a complete lookback or a future target are dropped for training.
+
+For serving, the API uses the same **32 engineered feature columns** plus
+`ticker` and `date`, but deliberately excludes `target_rv_20d` so the newest
+complete feature row can be predicted.
+
+## Project flow
+
+### 1. Ingest market data
+
+The ingestion service fetches company metadata and daily prices from yfinance,
+validates them, upserts them into PostgreSQL, and records the run outcome.
+
+```bash
+conda run -n finance-ml-api python -m scripts.ingest_market_data \
+  --tickers AAPL SPY '^VIX' --period 10y
 ```
 
----
+### 2. Build the training dataset
 
-## Current Status
+The feature pipeline reads persisted prices through `MarketRepository`, creates
+stock features, merges exact-date SPY/VIX context, creates the forward target,
+and writes a deterministic CSV.
 
-🚧 Project under active development.
+```bash
+conda run -n finance-ml-api python -m scripts.build_features \
+  --tickers AAPL AMZN BA CAT GOOGL JNJ JPM KO META MSFT NVDA PG TSLA V WMT XOM
+```
 
-The initial milestone focuses on building a complete end-to-end machine learning pipeline, including data ingestion, storage, preprocessing, model training, API deployment, and containerization.
+`SPY` and `^VIX` must already be present in PostgreSQL; they are context assets,
+not prediction tickers.
 
-## Volatility Forecasting
+### 3. Train and compare models
 
-The processed feature dataset is expected at
-`data/processed/v1/features_all_tickers.csv`. The forecasting workflow uses
-chronological 70/15/15 train/validation/test splits and tracks runs in MLflow.
-
-Run the full model comparison with:
+The model dataset is split by global calendar date: 70% training, 15%
+validation, and 15% final test. Rows are never shuffled across time.
 
 ```bash
 /opt/miniconda3/envs/finance-ml-api/bin/python -m scripts.train_model \
@@ -109,50 +122,84 @@ Run the full model comparison with:
   --tracking-uri sqlite:///mlflow.db
 ```
 
-For a quick smoke test, use a small ticker subset and one LSTM epoch:
+The workflow evaluates a naive `rv_20d` baseline, per-ticker Student-t
+GARCH(1,1), global LightGBM, optional local LightGBM models, and a global LSTM.
+It logs parameters, metrics, predictions, and artifacts to MLflow.
+
+Start the local MLflow interface with:
 
 ```bash
-/opt/miniconda3/envs/finance-ml-api/bin/python -m scripts.train_model \
-  --tickers AAPL MSFT \
-  --lstm-epochs 1 \
-  --no-local-lightgbm \
-  --output-dir /tmp/mimir-volatility-smoke \
-  --tracking-uri sqlite:////tmp/mimir-mlflow-smoke.db
+mlflow ui --backend-store-uri sqlite:///mlflow.db --default-artifact-root ./mlartifacts
 ```
 
-Start the local MLflow UI in another terminal:
+The selected deployed model is the global LightGBM artifact:
 
-```bash
-mlflow ui \
-  --backend-store-uri sqlite:///mlflow.db \
-  --default-artifact-root ./mlartifacts
+```text
+models/volatility/lightgbm_global.joblib
 ```
 
-The workflow trains per-ticker Student-t GARCH(1,1), pooled LightGBM, pooled
-PyTorch LSTM, and optional per-ticker LightGBM models. It logs predictions,
-metrics, feature importance, preprocessing artifacts, and model versions.
+Its MLflow registered-model name is `mimir-lightgbm-global`; version `1` is
+currently assigned the `champion` alias.
 
-## Serving the selected model
+## Serving the LightGBM model
 
-The deployed model is the global LightGBM artifact at
-`models/volatility/lightgbm_global.joblib`. The API reads the latest persisted
-OHLCV data for a trained ticker together with SPY and VIX, builds the same
-causal features used for training, and forecasts annualized realized volatility
-for the next 20 trading days.
+FastAPI loads the saved artifact once at startup. For a request such as
+`POST /v1/predictions/AAPL`, the application:
 
-Start the local stack after the artifact has been trained:
+1. verifies that AAPL is one of the tickers used to train the model;
+2. reads AAPL, SPY, and VIX history from PostgreSQL;
+3. builds the latest complete causal feature row;
+4. predicts the next 20-trading-day annualized realized volatility; and
+5. returns the ticker, feature date, prediction, model name, and model version.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | Confirms that the API can reach PostgreSQL and has loaded the model. |
+| `GET /v1/model` | Returns model version, supported tickers, feature count, and training parameters. |
+| `POST /v1/predictions/{ticker}` | Returns the latest 20-trading-day volatility forecast. |
+
+Example response:
+
+```json
+{
+  "ticker": "AAPL",
+  "as_of_date": "2026-08-07",
+  "predicted_rv_20d": 0.2656817,
+  "unit": "annualized_decimal_volatility",
+  "forecast_horizon_trading_days": 20,
+  "model_name": "lightgbm-global",
+  "model_version": "..."
+}
+```
+
+The API returns `404` when no persisted price data exists for a ticker, `422`
+when the ticker is unsupported, lacks sufficient history, or has no same-date
+SPY/VIX context, and `503` when the model cannot serve a valid prediction.
+
+## Docker deployment
+
+Docker Compose runs PostgreSQL and the FastAPI service. The model directory is
+mounted read-only into the API container; trained models and MLflow artifacts
+are intentionally not committed to Git.
 
 ```bash
 docker compose up --build
 ```
 
-The model directory is mounted read-only into the API container and stays out
-of Git. Docker initializes an empty PostgreSQL schema on first start; ingest
-market data for a supported ticker plus `SPY` and `^VIX` before requesting a
-forecast. The Compose database is published on host port `5433` to avoid
-clashing with the local PostgreSQL instance normally used during development.
+The API is available at `http://127.0.0.1:8000`. The Compose PostgreSQL database
+is published on host port `5433` to avoid a conflict with a local PostgreSQL
+server on port `5432`.
 
-Once data is available, use:
+The Docker database starts empty. To load data into it from the host, use its
+database URL when running the ingest script:
+
+```bash
+DATABASE_URL='postgresql+psycopg2://mimir:mimir@localhost:5433/mimir' \
+conda run -n finance-ml-api python -m scripts.ingest_market_data \
+  --tickers AAPL SPY '^VIX' --period 10y
+```
+
+Then test the deployed service:
 
 ```bash
 curl http://127.0.0.1:8000/health
@@ -160,13 +207,13 @@ curl http://127.0.0.1:8000/v1/model
 curl -X POST http://127.0.0.1:8000/v1/predictions/AAPL
 ```
 
-The API returns `404` for a ticker without persisted prices, and `422` when
-the ticker was not part of model training, has too little history, or lacks
-same-date SPY/VIX market context.
+## Development
 
-After the final evaluation, record the chosen model in local MLflow:
+Copy `.env.example` to `.env` and set local values as needed. `.env` is ignored
+by Git; `.env.example` is the committed, non-secret configuration template.
+
+Run the automated tests with:
 
 ```bash
-/opt/miniconda3/envs/finance-ml-api/bin/python -m scripts.promote_model \
-  --model-name mimir-lightgbm-global --version 1 --alias champion
+conda run -n finance-ml-api python -m pytest -q
 ```
