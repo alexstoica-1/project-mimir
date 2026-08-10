@@ -92,3 +92,42 @@ project-mimir/
 🚧 Project under active development.
 
 The initial milestone focuses on building a complete end-to-end machine learning pipeline, including data ingestion, storage, preprocessing, model training, API deployment, and containerization.
+
+## Volatility Forecasting
+
+The processed feature dataset is expected at
+`data/processed/v1/features_all_tickers.csv`. The forecasting workflow uses
+chronological 70/15/15 train/validation/test splits and tracks runs in MLflow.
+
+Run the full model comparison with:
+
+```bash
+/opt/miniconda3/envs/finance-ml-api/bin/python -m scripts.train_model \
+  --data data/processed/v1/features_all_tickers.csv \
+  --output-dir models/volatility \
+  --experiment mimir-volatility \
+  --tracking-uri sqlite:///mlflow.db
+```
+
+For a quick smoke test, use a small ticker subset and one LSTM epoch:
+
+```bash
+/opt/miniconda3/envs/finance-ml-api/bin/python -m scripts.train_model \
+  --tickers AAPL MSFT \
+  --lstm-epochs 1 \
+  --no-local-lightgbm \
+  --output-dir /tmp/mimir-volatility-smoke \
+  --tracking-uri sqlite:////tmp/mimir-mlflow-smoke.db
+```
+
+Start the local MLflow UI in another terminal:
+
+```bash
+mlflow ui \
+  --backend-store-uri sqlite:///mlflow.db \
+  --default-artifact-root ./mlartifacts
+```
+
+The workflow trains per-ticker Student-t GARCH(1,1), pooled LightGBM, pooled
+PyTorch LSTM, and optional per-ticker LightGBM models. It logs predictions,
+metrics, feature importance, preprocessing artifacts, and model versions.

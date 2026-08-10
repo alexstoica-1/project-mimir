@@ -27,6 +27,9 @@ ipython @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_ip
 ipython_pygments_lexers @ file:///home/conda/feedstock_root/build_artifacts/ipython_pygments_lexers_1737123620466/work
 jedi @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_jedi_1782251948/work
 joblib==1.5.3
+mlflow==3.15.1
+lightgbm==4.7.0
+arch==8.0.0
 jupyter_client @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_jupyter_client_1781019994/work
 jupyter_core @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_jupyter_core_1760643864/work
 kiwisolver==1.5.0
@@ -42,7 +45,7 @@ narwhals==2.24.0
 nest-asyncio2 @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_nest-asyncio2_1770973502/work
 numpy==2.4.6
 packaging @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_packaging_1777103621/work
-pandas==3.0.3
+pandas==2.3.3
 parso @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_parso_1777722955/work
 peewee==4.2.6
 pexpect @ file:///home/conda/feedstock_root/build_artifacts/pexpect_1733301927746/work
@@ -50,7 +53,7 @@ pillow==12.3.0
 platformdirs @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_platformdirs_1784661349/work
 pluggy==1.6.0
 prompt_toolkit @ file:///home/conda/feedstock_root/build_artifacts/prompt-toolkit_1785160527032/work
-protobuf==7.35.1
+protobuf==6.33.6
 psutil @ file:///Users/runner/miniforge3/conda-bld/bld/rattler-build_psutil_1769678306/work
 psycopg2-binary==2.9.12
 ptyprocess @ file:///home/conda/feedstock_root/build_artifacts/ptyprocess_1733302279685/work/dist/ptyprocess-0.7.0-py2.py3-none-any.whl#sha256=92c32ff62b5fd8cf325bec5ab90d7be3d2a8ca8c8a3813ff487a8d2002630d1f
@@ -77,6 +80,7 @@ SQLAlchemy==2.0.51
 stack_data @ file:///home/conda/feedstock_root/build_artifacts/stack_data_1733569443808/work
 starlette==1.3.1
 threadpoolctl==3.6.0
+torch==2.13.0
 tornado @ file:///Users/runner/miniforge3/conda-bld/tornado_1781006874976/work
 traitlets @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_traitlets_1785761789/work
 typing-inspection==0.4.2
