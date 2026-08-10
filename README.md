@@ -176,6 +176,18 @@ The API returns `404` when no persisted price data exists for a ticker, `422`
 when the ticker is unsupported, lacks sufficient history, or has no same-date
 SPY/VIX context, and `503` when the model cannot serve a valid prediction.
 
+### Browser dashboard
+
+The API also serves a small dashboard at `GET /`. It loads the supported ticker
+list from `/v1/model`, requests forecasts through the same prediction endpoint,
+and displays the annualized 20-day forecast with the model metadata.
+
+When the Docker stack is running, open:
+
+```text
+http://127.0.0.1:8000/
+```
+
 ## Docker deployment
 
 Docker Compose runs PostgreSQL and the FastAPI service. The model directory is

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="MIMIR 20-trading-day volatility forecasts powered by LightGBM."
+    />
+    <title>MIMIR · Volatility Forecast</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="hero">
+        <div class="brand-row">
+          <div class="brand-mark" aria-hidden="true">M</div>
+          <p class="eyebrow">Market Intelligence</p>
+        </div>
+        <h1>Volatility forecast</h1>
+        <p class="hero-copy">
+          Estimate annualized realized volatility for the next 20 trading days.
+        </p>
+      </header>
+
+      <section class="panel forecast-panel" aria-labelledby="forecast-heading">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Forecast request</p>
+            <h2 id="forecast-heading">Choose a ticker</h2>
+          </div>
+          <span id="api-status" class="status" role="status">Loading model</span>
+        </div>
+
+        <form id="prediction-form" class="prediction-form">
+          <label for="ticker">Ticker</label>
+          <div class="form-row">
+            <select id="ticker" name="ticker" disabled aria-describedby="ticker-help">
+              <option>Loading available tickers…</option>
+            </select>
+            <button id="predict-button" type="submit" disabled>Predict volatility</button>
+          </div>
+          <p id="ticker-help" class="field-help">
+            Only tickers included in the deployed model are available.
+          </p>
+        </form>
+      </section>
+
+      <section id="result-card" class="panel result-card is-hidden" aria-live="polite">
+        <p class="eyebrow">Predicted volatility</p>
+        <p id="forecast-value" class="forecast-value">—</p>
+        <p class="forecast-label">Annualized, next 20 trading days</p>
+        <div class="result-details">
+          <div>
+            <span class="detail-label">Ticker</span>
+            <strong id="result-ticker">—</strong>
+          </div>
+          <div>
+            <span class="detail-label">Market data through</span>
+            <strong id="as-of-date">—</strong>
+          </div>
+        </div>
+      </section>
+
+      <section id="error-card" class="error-card is-hidden" role="alert">
+        <p class="eyebrow">Forecast unavailable</p>
+        <p id="error-message"></p>
+      </section>
+
+      <section class="panel model-panel" aria-labelledby="model-heading">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Deployed model</p>
+            <h2 id="model-heading">Model details</h2>
+          </div>
+        </div>
+        <dl class="model-details">
+          <div>
+            <dt>Model</dt>
+            <dd id="model-name">Loading…</dd>
+          </div>
+          <div>
+            <dt>Version</dt>
+            <dd id="model-version">—</dd>
+          </div>
+          <div>
+            <dt>Features</dt>
+            <dd id="feature-count">—</dd>
+          </div>
+          <div>
+            <dt>Horizon</dt>
+            <dd id="forecast-horizon">—</dd>
+          </div>
+        </dl>
+      </section>
+
+      <footer>
+        Forecasts use current stored market data, SPY market context, and VIX context.
+      </footer>
+    </main>
+  </body>
+</html>

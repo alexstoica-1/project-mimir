@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from src.api.routes import models, predictions
@@ -15,6 +17,8 @@ from src.database.connection import SessionLocal
 from src.ml.predict import load_lightgbm
 from src.schemas.prediction import HealthResponse
 from src.services.prediction_service import ModelMetadata, build_model_metadata
+
+STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
 
 
 def create_app(
@@ -51,8 +55,15 @@ def create_app(
         version="0.1.0",
         lifespan=lifespan,
     )
+    app.mount("/static", StaticFiles(directory=STATIC_DIRECTORY), name="static")
     app.include_router(models.router)
     app.include_router(predictions.router)
+
+    @app.get("/", include_in_schema=False)
+    def dashboard() -> FileResponse:
+        """Serve the small browser dashboard for the deployed model."""
+
+        return FileResponse(STATIC_DIRECTORY / "index.html")
 
     @app.get("/health", response_model=HealthResponse, tags=["health"])
     def health(request: Request) -> HealthResponse:

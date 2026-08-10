@@ -190,3 +190,25 @@ def test_api_health_model_and_prediction_routes(trained_artifact, prediction_ser
     assert prediction.json()["predicted_rv_20d"] >= 0
     assert unsupported.status_code == 422
     assert missing.status_code == 404
+
+
+def test_dashboard_and_static_assets_are_served(trained_artifact) -> None:
+    """The browser dashboard is packaged with the FastAPI application."""
+
+    path, _model = trained_artifact
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    app = create_app(model_path=path, session_factory=sessionmaker(bind=engine))
+
+    with TestClient(app) as client:
+        dashboard = client.get("/")
+        stylesheet = client.get("/static/styles.css")
+        script = client.get("/static/app.js")
+
+    assert dashboard.status_code == 200
+    assert "MIMIR · Volatility Forecast" in dashboard.text
+    assert 'href="/static/styles.css"' in dashboard.text
+    assert stylesheet.status_code == 200
+    assert "--background: #09111f" in stylesheet.text
+    assert script.status_code == 200
+    assert 'fetch("/v1/model")' in script.text
+    assert "/v1/predictions/${encodeURIComponent(ticker)}" in script.text
