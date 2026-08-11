@@ -136,6 +136,18 @@ footer {
   margin-top: 1.4rem;
 }
 
+.history-controls,
+.range-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.history-controls {
+  justify-content: space-between;
+  margin-top: 1.35rem;
+}
+
 label,
 .detail-label,
 dt {
@@ -179,6 +191,26 @@ button:hover:not(:disabled) {
   background: #8be6d0;
 }
 
+.range-button {
+  min-height: 2.45rem;
+  padding: 0 0.75rem;
+  border-color: var(--border);
+  color: var(--muted);
+  background: #0a1525;
+  font-size: 0.82rem;
+}
+
+.range-button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+.range-button.is-selected {
+  border-color: var(--accent-strong);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 button:disabled,
 select:disabled {
   opacity: 0.58;
@@ -213,6 +245,90 @@ select:disabled {
 .model-details {
   gap: 1rem;
   margin: 1.5rem 0 0;
+}
+
+.market-history {
+  margin-top: 1rem;
+}
+
+.chart-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.chart-card {
+  margin-top: 0;
+}
+
+figcaption h2 {
+  margin-bottom: 0;
+}
+
+.line-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 1rem;
+  overflow: visible;
+}
+
+.chart-grid-line {
+  stroke: #2b3d56;
+  stroke-width: 1;
+}
+
+.chart-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+.chart-label {
+  fill: var(--muted);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.table-panel {
+  margin-top: 1rem;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  margin-top: 1.25rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+  white-space: nowrap;
+}
+
+th,
+td {
+  padding: 0.75rem 0.55rem;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+}
+
+th:first-child,
+td:first-child {
+  padding-left: 0;
+  text-align: left;
+}
+
+th {
+  color: var(--muted);
+  font-size: 0.73rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+tbody tr:last-child td {
+  border-bottom: 0;
 }
 
 .result-details > div,
@@ -268,12 +384,14 @@ footer {
   }
 
   .form-row,
-  .result-details {
+  .result-details,
+  .history-controls {
     align-items: stretch;
     flex-direction: column;
   }
 
-  button {
+  .history-controls > button,
+  #predict-button {
     width: 100%;
   }
 }

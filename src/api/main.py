@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
-from src.api.routes import models, predictions
+from src.api.routes import market_data, models, predictions
 from src.config import settings
 from src.database.connection import SessionLocal
 from src.ml.predict import load_lightgbm
@@ -58,6 +58,7 @@ def create_app(
     app.mount("/static", StaticFiles(directory=STATIC_DIRECTORY), name="static")
     app.include_router(models.router)
     app.include_router(predictions.router)
+    app.include_router(market_data.router)
 
     @app.get("/", include_in_schema=False)
     def dashboard() -> FileResponse:

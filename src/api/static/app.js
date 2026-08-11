@@ -13,7 +13,17 @@ const elements = {
   modelVersion: document.querySelector("#model-version"),
   featureCount: document.querySelector("#feature-count"),
   forecastHorizon: document.querySelector("#forecast-horizon"),
+  rangeButtons: document.querySelectorAll(".range-button"),
+  historyButton: document.querySelector("#history-button"),
+  marketHistory: document.querySelector("#market-history"),
+  priceChart: document.querySelector("#price-chart"),
+  volatilityChart: document.querySelector("#volatility-chart"),
+  historySummary: document.querySelector("#history-summary"),
+  historyTableBody: document.querySelector("#history-table-body"),
 };
+
+const historyState = { range: "1y" };
+const svgNamespace = "http://www.w3.org/2000/svg";
 
 function showError(message) {
   elements.resultCard.classList.add("is-hidden");
@@ -24,6 +34,15 @@ function showError(message) {
 function clearError() {
   elements.errorCard.classList.add("is-hidden");
   elements.errorMessage.textContent = "";
+}
+
+function setHistoryRange(range) {
+  historyState.range = range;
+  for (const button of elements.rangeButtons) {
+    const selected = button.dataset.range === range;
+    button.classList.toggle("is-selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  }
 }
 
 function formatDate(value) {
@@ -77,12 +96,122 @@ async function loadModel() {
     elements.forecastHorizon.textContent = `${model.forecast_horizon_trading_days} trading days`;
     elements.ticker.disabled = false;
     elements.button.disabled = false;
+    elements.historyButton.disabled = false;
+    for (const button of elements.rangeButtons) {
+      button.disabled = false;
+    }
     elements.status.textContent = "Model ready";
     elements.status.classList.add("is-ready");
   } catch (error) {
     const message = error instanceof Error ? error.message : "The model information is unavailable.";
     elements.status.textContent = "API unavailable";
     showError(message);
+  }
+}
+
+function createSvgElement(name, attributes = {}) {
+  const element = document.createElementNS(svgNamespace, name);
+  for (const [key, value] of Object.entries(attributes)) {
+    element.setAttribute(key, String(value));
+  }
+  return element;
+}
+
+function renderLineChart(svg, points, field, valueFormatter) {
+  svg.replaceChildren();
+  const width = 680;
+  const height = 240;
+  const padding = { top: 18, right: 16, bottom: 32, left: 64 };
+  const values = points.map((point) => point[field]);
+  let minimum = Math.min(...values);
+  let maximum = Math.max(...values);
+  if (minimum === maximum) {
+    minimum -= Math.max(Math.abs(minimum) * 0.05, 0.01);
+    maximum += Math.max(Math.abs(maximum) * 0.05, 0.01);
+  }
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const xFor = (index) => padding.left + (index / Math.max(points.length - 1, 1)) * chartWidth;
+  const yFor = (value) => padding.top + ((maximum - value) / (maximum - minimum)) * chartHeight;
+
+  for (const ratio of [0, 0.5, 1]) {
+    const y = padding.top + ratio * chartHeight;
+    svg.append(createSvgElement("line", {
+      class: "chart-grid-line", x1: padding.left, x2: width - padding.right, y1: y, y2: y,
+    }));
+  }
+  const path = points.map((point, index) => `${index === 0 ? "M" : "L"}${xFor(index)} ${yFor(point[field])}`).join(" ");
+  svg.append(createSvgElement("path", { class: "chart-line", d: path }));
+
+  const labels = [
+    { text: valueFormatter(maximum), x: 0, y: padding.top + 4, anchor: "start" },
+    { text: valueFormatter(minimum), x: 0, y: height - padding.bottom + 4, anchor: "start" },
+    { text: formatDate(points[0].date), x: padding.left, y: height - 5, anchor: "start" },
+    { text: formatDate(points.at(-1).date), x: width - padding.right, y: height - 5, anchor: "end" },
+  ];
+  for (const label of labels) {
+    const text = createSvgElement("text", {
+      class: "chart-label", x: label.x, y: label.y, "text-anchor": label.anchor,
+    });
+    text.textContent = label.text;
+    svg.append(text);
+  }
+}
+
+function formatNumber(value, maximumFractionDigits = 2) {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits }).format(value);
+}
+
+function formatPercent(value) {
+  return `${(value * 100).toFixed(2)}%`;
+}
+
+function renderHistoryTable(points) {
+  elements.historyTableBody.replaceChildren();
+  for (const point of points.slice(-20).reverse()) {
+    const row = document.createElement("tr");
+    const cells = [
+      formatDate(point.date),
+      formatNumber(point.adjusted_close),
+      formatPercent(point.rv_20d),
+      formatPercent(point.return_20d),
+      formatPercent(point.drawdown),
+      `${formatNumber(point.volume_ratio_20d)}x`,
+    ];
+    for (const value of cells) {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      row.append(cell);
+    }
+    elements.historyTableBody.append(row);
+  }
+}
+
+async function loadMarketHistory() {
+  clearError();
+  elements.historyButton.disabled = true;
+  elements.historyButton.textContent = "Loading history…";
+
+  try {
+    const ticker = elements.ticker.value;
+    const response = await fetch(
+      `/v1/market-data/${encodeURIComponent(ticker)}?range=${historyState.range}`,
+    );
+    const history = await readJson(response);
+    if (!response.ok) {
+      showError(messageForResponse(response.status, history.detail));
+      return;
+    }
+    renderLineChart(elements.priceChart, history.points, "adjusted_close", (value) => formatNumber(value));
+    renderLineChart(elements.volatilityChart, history.points, "rv_20d", formatPercent);
+    renderHistoryTable(history.points);
+    elements.historySummary.textContent = `${history.points.length} of ${history.available_observations} causal rows`;
+    elements.marketHistory.classList.remove("is-hidden");
+  } catch {
+    showError("Market history could not be loaded. Check the API and try again.");
+  } finally {
+    elements.historyButton.disabled = false;
+    elements.historyButton.textContent = "Load market history";
   }
 }
 
@@ -117,4 +246,8 @@ async function requestPrediction(event) {
 }
 
 elements.form.addEventListener("submit", requestPrediction);
+for (const button of elements.rangeButtons) {
+  button.addEventListener("click", () => setHistoryRange(button.dataset.range));
+}
+elements.historyButton.addEventListener("click", loadMarketHistory);
 loadModel();

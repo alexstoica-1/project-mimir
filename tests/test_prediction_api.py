@@ -18,6 +18,7 @@ from src.ml.lightgbm_model import LightGBMRegressorModel
 from src.services.prediction_service import (
     InsufficientHistoryError,
     LightGBMVolatilityPredictionService,
+    MARKET_HISTORY_RANGES,
     MissingMarketContextError,
     build_model_metadata,
 )
@@ -125,6 +126,26 @@ def prediction_service(trained_artifact):
     )
 
 
+@pytest.fixture()
+def market_history_service(trained_artifact):
+    """Create a service with enough complete rows for all history ranges."""
+
+    path, model = trained_artifact
+    repository = FakeMarketRepository(
+        {
+            "AAPL": _synthetic_prices("AAPL", periods=400),
+            "SPY": _synthetic_prices("SPY", periods=400),
+            "^VIX": _synthetic_prices("^VIX", periods=400),
+            "MSFT": _synthetic_prices("MSFT", periods=400),
+        }
+    )
+    return LightGBMVolatilityPredictionService(
+        model=model,
+        metadata=build_model_metadata(model, path),
+        repository=repository,
+    )
+
+
 def test_prediction_service_uses_latest_targetless_feature_row(prediction_service) -> None:
     forecast = prediction_service.predict_latest("aapl")
     feature_row = MarketFeaturePipeline(prediction_service.repository).build_for_ticker(
@@ -167,6 +188,28 @@ def test_prediction_service_requires_latest_market_context(prediction_service) -
         prediction_service.predict_latest("AAPL")
 
 
+@pytest.mark.parametrize("history_range, expected_rows", MARKET_HISTORY_RANGES.items())
+def test_market_history_uses_complete_causal_rows(
+    market_history_service,
+    history_range,
+    expected_rows,
+) -> None:
+    history = market_history_service.get_market_history("AAPL", history_range)
+
+    assert history.ticker == "AAPL"
+    assert history.history_range == history_range
+    assert len(history.points) == expected_rows
+    assert history.available_observations >= expected_rows
+    assert [point.date for point in history.points] == sorted(point.date for point in history.points)
+    assert all(point.rv_20d >= 0 for point in history.points)
+    assert all(not hasattr(point, "target_rv_20d") for point in history.points)
+
+
+def test_market_history_rejects_incomplete_requested_range(prediction_service) -> None:
+    with pytest.raises(InsufficientHistoryError, match="1y requires 252"):
+        prediction_service.get_market_history("AAPL", "1y")
+
+
 def test_api_health_model_and_prediction_routes(trained_artifact, prediction_service) -> None:
     path, _model = trained_artifact
     engine = create_engine("sqlite+pysqlite:///:memory:")
@@ -192,6 +235,31 @@ def test_api_health_model_and_prediction_routes(trained_artifact, prediction_ser
     assert missing.status_code == 404
 
 
+def test_api_returns_market_history_and_expected_errors(trained_artifact, market_history_service) -> None:
+    path, _model = trained_artifact
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    app = create_app(model_path=path, session_factory=sessionmaker(bind=engine))
+    app.dependency_overrides[get_prediction_service] = lambda: market_history_service
+
+    with TestClient(app) as client:
+        history = client.get("/v1/market-data/AAPL?range=3m")
+        unsupported = client.get("/v1/market-data/MSFT?range=3m")
+        missing = client.get("/v1/market-data/ZZZ?range=3m")
+        invalid_range = client.get("/v1/market-data/AAPL?range=2y")
+
+    assert history.status_code == 200
+    response = history.json()
+    assert response["ticker"] == "AAPL"
+    assert response["range"] == "3m"
+    assert len(response["points"]) == 63
+    assert set(response["points"][0]) == {
+        "date", "adjusted_close", "rv_20d", "return_20d", "drawdown", "volume_ratio_20d",
+    }
+    assert unsupported.status_code == 422
+    assert missing.status_code == 404
+    assert invalid_range.status_code == 422
+
+
 def test_dashboard_and_static_assets_are_served(trained_artifact) -> None:
     """The browser dashboard is packaged with the FastAPI application."""
 
@@ -212,3 +280,4 @@ def test_dashboard_and_static_assets_are_served(trained_artifact) -> None:
     assert script.status_code == 200
     assert 'fetch("/v1/model")' in script.text
     assert "/v1/predictions/${encodeURIComponent(ticker)}" in script.text
+    assert "/v1/market-data/${encodeURIComponent(ticker)}?range=${historyState.range}" in script.text

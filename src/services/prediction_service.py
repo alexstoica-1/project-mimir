@@ -8,12 +8,22 @@ from hashlib import sha256
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from src.features.pipeline import FEATURE_COLUMNS, MarketFeaturePipeline
 from src.ml.lightgbm_model import LightGBMRegressorModel
 
 MINIMUM_PRICE_OBSERVATIONS = 61
 FORECAST_HORIZON_TRADING_DAYS = 20
+MARKET_HISTORY_RANGES = {"3m": 63, "6m": 126, "1y": 252}
+MARKET_HISTORY_COLUMNS = [
+    "date",
+    "adjusted_close",
+    "rv_20d",
+    "return_20d",
+    "drawdown",
+    "volume_ratio_20d",
+]
 
 
 class PredictionServiceError(Exception):
@@ -62,6 +72,28 @@ class VolatilityPrediction:
     model: ModelMetadata
 
 
+@dataclass(frozen=True)
+class MarketHistoryPoint:
+    """One causal engineered market-data observation for dashboard display."""
+
+    date: date
+    adjusted_close: float
+    rv_20d: float
+    return_20d: float
+    drawdown: float
+    volume_ratio_20d: float
+
+
+@dataclass(frozen=True)
+class MarketHistory:
+    """A recent, ticker-specific slice of complete causal feature rows."""
+
+    ticker: str
+    history_range: str
+    available_observations: int
+    points: tuple[MarketHistoryPoint, ...]
+
+
 def build_model_metadata(
     model: LightGBMRegressorModel,
     artifact_path: str | Path,
@@ -103,13 +135,7 @@ class LightGBMVolatilityPredictionService:
     def predict_latest(self, ticker: str) -> VolatilityPrediction:
         """Predict the next 20-day realized volatility from the latest raw prices."""
 
-        normalized_ticker = self._normalize_ticker(ticker)
-        if not self.repository.company_exists(normalized_ticker):  # type: ignore[attr-defined]
-            raise TickerNotFoundError(f"No persisted market data exists for ticker {normalized_ticker}")
-        if normalized_ticker not in self.metadata.supported_tickers:
-            raise UnsupportedTickerError(
-                f"Ticker {normalized_ticker} is not supported by the deployed model"
-            )
+        normalized_ticker = self._validate_supported_ticker(ticker)
 
         latest_price_date = self.repository.latest_price_date(normalized_ticker, self.source)  # type: ignore[attr-defined]
         price_history = self.repository.get_price_history_frame(  # type: ignore[attr-defined]
@@ -151,6 +177,56 @@ class LightGBMVolatilityPredictionService:
             predicted_rv_20d=prediction,
             model=self.metadata,
         )
+
+    def get_market_history(self, ticker: str, history_range: str = "1y") -> MarketHistory:
+        """Return recent causal features for one trained ticker's market view."""
+
+        normalized_ticker = self._validate_supported_ticker(ticker)
+        requested_observations = MARKET_HISTORY_RANGES.get(history_range)
+        if requested_observations is None:
+            raise ValueError(f"Unsupported market-data range: {history_range}")
+
+        features = MarketFeaturePipeline(self.repository).build_for_ticker(
+            normalized_ticker,
+            source=self.source,
+            inference_ready=True,
+        )
+        if len(features) < requested_observations:
+            raise InsufficientHistoryError(
+                f"Ticker {normalized_ticker} has {len(features)} complete feature rows; "
+                f"{history_range} requires {requested_observations}"
+            )
+
+        history = features.loc[:, MARKET_HISTORY_COLUMNS].tail(requested_observations)
+        points = tuple(
+            MarketHistoryPoint(
+                date=pd.Timestamp(row.date).date(),
+                adjusted_close=float(row.adjusted_close),
+                rv_20d=float(row.rv_20d),
+                return_20d=float(row.return_20d),
+                drawdown=float(row.drawdown),
+                volume_ratio_20d=float(row.volume_ratio_20d),
+            )
+            for row in history.itertuples(index=False)
+        )
+        return MarketHistory(
+            ticker=normalized_ticker,
+            history_range=history_range,
+            available_observations=len(features),
+            points=points,
+        )
+
+    def _validate_supported_ticker(self, ticker: str) -> str:
+        """Validate persisted data availability and deployed-model support."""
+
+        normalized_ticker = self._normalize_ticker(ticker)
+        if not self.repository.company_exists(normalized_ticker):  # type: ignore[attr-defined]
+            raise TickerNotFoundError(f"No persisted market data exists for ticker {normalized_ticker}")
+        if normalized_ticker not in self.metadata.supported_tickers:
+            raise UnsupportedTickerError(
+                f"Ticker {normalized_ticker} is not supported by the deployed model"
+            )
+        return normalized_ticker
 
     @staticmethod
     def _normalize_ticker(ticker: str) -> str:

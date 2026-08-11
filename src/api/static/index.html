@@ -68,6 +68,70 @@
         <p id="error-message"></p>
       </section>
 
+      <section class="panel history-panel" aria-labelledby="history-heading">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Engineered market data</p>
+            <h2 id="history-heading">Market history</h2>
+          </div>
+        </div>
+        <div class="history-controls" aria-label="Market history controls">
+          <div class="range-controls" role="group" aria-label="History range">
+            <button class="range-button" type="button" data-range="3m" disabled>3M</button>
+            <button class="range-button" type="button" data-range="6m" disabled>6M</button>
+            <button class="range-button is-selected" type="button" data-range="1y" disabled>1Y</button>
+          </div>
+          <button id="history-button" type="button" disabled>Load market history</button>
+        </div>
+        <p class="field-help">
+          Uses complete causal rows with adjusted close, realized volatility, returns, drawdown, and volume context.
+        </p>
+      </section>
+
+      <section id="market-history" class="market-history is-hidden" aria-live="polite">
+        <div class="chart-grid">
+          <figure class="panel chart-card">
+            <figcaption>
+              <p class="eyebrow">Adjusted close</p>
+              <h2 id="price-chart-title">Price history</h2>
+            </figcaption>
+            <svg id="price-chart" class="line-chart" viewBox="0 0 680 240" role="img" aria-labelledby="price-chart-title"></svg>
+          </figure>
+          <figure class="panel chart-card">
+            <figcaption>
+              <p class="eyebrow">Realized volatility</p>
+              <h2 id="volatility-chart-title">20-day volatility</h2>
+            </figcaption>
+            <svg id="volatility-chart" class="line-chart" viewBox="0 0 680 240" role="img" aria-labelledby="volatility-chart-title"></svg>
+          </figure>
+        </div>
+
+        <section class="panel table-panel" aria-labelledby="table-heading">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Latest observations</p>
+              <h2 id="table-heading">Engineered indicator table</h2>
+            </div>
+            <span id="history-summary" class="status">—</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Date</th>
+                  <th scope="col">Adjusted close</th>
+                  <th scope="col">RV 20D</th>
+                  <th scope="col">Return 20D</th>
+                  <th scope="col">Drawdown</th>
+                  <th scope="col">Volume ratio 20D</th>
+                </tr>
+              </thead>
+              <tbody id="history-table-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
       <section class="panel model-panel" aria-labelledby="model-heading">
         <div class="panel-heading">
           <div>

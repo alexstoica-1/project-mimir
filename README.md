@@ -157,6 +157,7 @@ FastAPI loads the saved artifact once at startup. For a request such as
 | `GET /health` | Confirms that the API can reach PostgreSQL and has loaded the model. |
 | `GET /v1/model` | Returns model version, supported tickers, feature count, and training parameters. |
 | `POST /v1/predictions/{ticker}` | Returns the latest 20-trading-day volatility forecast. |
+| `GET /v1/market-data/{ticker}?range=1y` | Returns causal engineered history for a trained ticker; ranges are `3m`, `6m`, or `1y`. |
 
 Example response:
 
@@ -180,7 +181,9 @@ SPY/VIX context, and `503` when the model cannot serve a valid prediction.
 
 The API also serves a small dashboard at `GET /`. It loads the supported ticker
 list from `/v1/model`, requests forecasts through the same prediction endpoint,
-and displays the annualized 20-day forecast with the model metadata.
+and displays the annualized 20-day forecast with the model metadata. It also
+provides 3-month, 6-month, and 1-year market-history controls that show native
+adjusted-close and `rv_20d` charts plus the latest 20 causal indicator rows.
 
 When the Docker stack is running, open:
 
