@@ -188,6 +188,25 @@ def test_prediction_service_requires_latest_market_context(prediction_service) -
         prediction_service.predict_latest("AAPL")
 
 
+def test_market_summary_uses_the_latest_causal_feature_row(prediction_service) -> None:
+    summary = prediction_service.get_market_summary("aapl")
+    feature_row = MarketFeaturePipeline(prediction_service.repository).build_for_ticker(
+        "AAPL",
+        inference_ready=True,
+    ).iloc[-1]
+
+    assert summary.ticker == "AAPL"
+    assert summary.as_of_date == pd.Timestamp(feature_row.date).date()
+    assert summary.adjusted_close == pytest.approx(feature_row.adjusted_close)
+    assert summary.return_1d == pytest.approx(np.expm1(feature_row.log_return))
+    assert summary.return_5d == pytest.approx(feature_row.return_5d)
+    assert summary.return_20d == pytest.approx(feature_row.return_20d)
+    assert summary.rv_20d == pytest.approx(feature_row.rv_20d)
+    assert summary.drawdown == pytest.approx(feature_row.drawdown)
+    assert summary.volume_ratio_20d == pytest.approx(feature_row.volume_ratio_20d)
+    assert not hasattr(summary, "target_rv_20d")
+
+
 @pytest.mark.parametrize("history_range, expected_rows", MARKET_HISTORY_RANGES.items())
 def test_market_history_uses_complete_causal_rows(
     market_history_service,
@@ -260,6 +279,77 @@ def test_api_returns_market_history_and_expected_errors(trained_artifact, market
     assert invalid_range.status_code == 422
 
 
+def test_api_returns_market_summary_and_expected_errors(trained_artifact, prediction_service) -> None:
+    path, _model = trained_artifact
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    app = create_app(model_path=path, session_factory=sessionmaker(bind=engine))
+    app.dependency_overrides[get_prediction_service] = lambda: prediction_service
+
+    with TestClient(app) as client:
+        summary = client.get("/v1/market-summary/AAPL")
+        unsupported = client.get("/v1/market-summary/MSFT")
+        missing = client.get("/v1/market-summary/ZZZ")
+
+    assert summary.status_code == 200
+    response = summary.json()
+    assert set(response) == {
+        "ticker",
+        "as_of_date",
+        "adjusted_close",
+        "return_1d",
+        "return_5d",
+        "return_20d",
+        "rv_20d",
+        "drawdown",
+        "volume_ratio_20d",
+    }
+    assert response["ticker"] == "AAPL"
+    assert response["rv_20d"] >= 0
+    assert response["volume_ratio_20d"] >= 0
+    assert "target_rv_20d" not in response
+    assert unsupported.status_code == 422
+    assert missing.status_code == 404
+
+
+def test_api_market_summary_requires_latest_market_context(trained_artifact, prediction_service) -> None:
+    path, _model = trained_artifact
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    app = create_app(model_path=path, session_factory=sessionmaker(bind=engine))
+    app.dependency_overrides[get_prediction_service] = lambda: prediction_service
+    prediction_service.repository.frames["^VIX"] = prediction_service.repository.frames["^VIX"].iloc[:-1]
+
+    with TestClient(app) as client:
+        response = client.get("/v1/market-summary/AAPL")
+
+    assert response.status_code == 422
+    assert "matching SPY/VIX context" in response.json()["detail"]
+
+
+def test_api_market_summary_rejects_short_history(trained_artifact) -> None:
+    path, model = trained_artifact
+    repository = FakeMarketRepository(
+        {
+            "AAPL": _synthetic_prices("AAPL", periods=30),
+            "SPY": _synthetic_prices("SPY", periods=30),
+            "^VIX": _synthetic_prices("^VIX", periods=30),
+        }
+    )
+    service = LightGBMVolatilityPredictionService(
+        model=model,
+        metadata=build_model_metadata(model, path),
+        repository=repository,
+    )
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    app = create_app(model_path=path, session_factory=sessionmaker(bind=engine))
+    app.dependency_overrides[get_prediction_service] = lambda: service
+
+    with TestClient(app) as client:
+        response = client.get("/v1/market-summary/AAPL")
+
+    assert response.status_code == 422
+    assert "needs at least" in response.json()["detail"]
+
+
 def test_dashboard_and_static_assets_are_served(trained_artifact) -> None:
     """The browser dashboard is packaged with the FastAPI application."""
 
@@ -280,4 +370,5 @@ def test_dashboard_and_static_assets_are_served(trained_artifact) -> None:
     assert script.status_code == 200
     assert 'fetch("/v1/model")' in script.text
     assert "/v1/predictions/${encodeURIComponent(ticker)}" in script.text
+    assert "/v1/market-summary/${encodeURIComponent(ticker)}" in script.text
     assert "/v1/market-data/${encodeURIComponent(ticker)}?range=${historyState.range}" in script.text

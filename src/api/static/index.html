@@ -63,6 +63,46 @@
         </div>
       </section>
 
+      <section id="market-summary" class="panel summary-card is-hidden" aria-labelledby="summary-heading" aria-live="polite">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Latest market indicators</p>
+            <h2 id="summary-heading">Market snapshot</h2>
+          </div>
+          <span id="snapshot-as-of" class="status">—</span>
+        </div>
+        <div class="snapshot-price">
+          <span class="detail-label">Adjusted close</span>
+          <strong id="snapshot-price">—</strong>
+        </div>
+        <dl class="snapshot-details">
+          <div>
+            <dt>Return 1D</dt>
+            <dd id="snapshot-return-1d">—</dd>
+          </div>
+          <div>
+            <dt>Return 5D</dt>
+            <dd id="snapshot-return-5d">—</dd>
+          </div>
+          <div>
+            <dt>Return 20D</dt>
+            <dd id="snapshot-return-20d">—</dd>
+          </div>
+          <div>
+            <dt>RV 20D</dt>
+            <dd id="snapshot-rv-20d">—</dd>
+          </div>
+          <div>
+            <dt>Drawdown</dt>
+            <dd id="snapshot-drawdown">—</dd>
+          </div>
+          <div>
+            <dt>Volume ratio 20D</dt>
+            <dd id="snapshot-volume-ratio">—</dd>
+          </div>
+        </dl>
+      </section>
+
       <section id="error-card" class="error-card is-hidden" role="alert">
         <p class="eyebrow">Forecast unavailable</p>
         <p id="error-message"></p>

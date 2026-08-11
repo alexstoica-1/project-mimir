@@ -94,6 +94,21 @@ class MarketHistory:
     points: tuple[MarketHistoryPoint, ...]
 
 
+@dataclass(frozen=True)
+class MarketSummary:
+    """Latest causal market indicators for one dashboard ticker."""
+
+    ticker: str
+    as_of_date: date
+    adjusted_close: float
+    return_1d: float
+    return_5d: float
+    return_20d: float
+    rv_20d: float
+    drawdown: float
+    volume_ratio_20d: float
+
+
 def build_model_metadata(
     model: LightGBMRegressorModel,
     artifact_path: str | Path,
@@ -135,38 +150,8 @@ class LightGBMVolatilityPredictionService:
     def predict_latest(self, ticker: str) -> VolatilityPrediction:
         """Predict the next 20-day realized volatility from the latest raw prices."""
 
-        normalized_ticker = self._validate_supported_ticker(ticker)
-
-        latest_price_date = self.repository.latest_price_date(normalized_ticker, self.source)  # type: ignore[attr-defined]
-        price_history = self.repository.get_price_history_frame(  # type: ignore[attr-defined]
-            normalized_ticker,
-            source=self.source,
-        )
-        if latest_price_date is None or price_history.empty:
-            raise TickerNotFoundError(f"No persisted {self.source} prices exist for {normalized_ticker}")
-        if len(price_history) < MINIMUM_PRICE_OBSERVATIONS:
-            raise InsufficientHistoryError(
-                f"Ticker {normalized_ticker} needs at least {MINIMUM_PRICE_OBSERVATIONS} price observations"
-            )
-
-        features = MarketFeaturePipeline(self.repository).build_for_ticker(
-            normalized_ticker,
-            source=self.source,
-            inference_ready=True,
-        )
-        if features.empty:
-            raise InsufficientHistoryError(
-                f"Ticker {normalized_ticker} has no complete causal feature row"
-            )
-
-        latest_features = features.iloc[[-1]].copy()
-        as_of_date = latest_features["date"].iloc[0]
-        if hasattr(as_of_date, "date"):
-            as_of_date = as_of_date.date()
-        if as_of_date != latest_price_date:
-            raise MissingMarketContextError(
-                f"Latest {normalized_ticker} price date {latest_price_date} has no matching SPY/VIX context"
-            )
+        normalized_ticker, latest_features = self._get_latest_usable_features(ticker)
+        as_of_date = pd.Timestamp(latest_features["date"].iloc[0]).date()
 
         prediction = float(self.model.predict(latest_features)[0])
         if not np.isfinite(prediction) or prediction < 0:
@@ -176,6 +161,23 @@ class LightGBMVolatilityPredictionService:
             as_of_date=as_of_date,
             predicted_rv_20d=prediction,
             model=self.metadata,
+        )
+
+    def get_market_summary(self, ticker: str) -> MarketSummary:
+        """Return the latest causal indicators used to describe one ticker."""
+
+        normalized_ticker, latest_features = self._get_latest_usable_features(ticker)
+        row = latest_features.iloc[0]
+        return MarketSummary(
+            ticker=normalized_ticker,
+            as_of_date=pd.Timestamp(row.date).date(),
+            adjusted_close=float(row.adjusted_close),
+            return_1d=float(np.expm1(row.log_return)),
+            return_5d=float(row.return_5d),
+            return_20d=float(row.return_20d),
+            rv_20d=float(row.rv_20d),
+            drawdown=float(row.drawdown),
+            volume_ratio_20d=float(row.volume_ratio_20d),
         )
 
     def get_market_history(self, ticker: str, history_range: str = "1y") -> MarketHistory:
@@ -227,6 +229,40 @@ class LightGBMVolatilityPredictionService:
                 f"Ticker {normalized_ticker} is not supported by the deployed model"
             )
         return normalized_ticker
+
+    def _get_latest_usable_features(self, ticker: str) -> tuple[str, pd.DataFrame]:
+        """Build the latest inference row and require exact-date market context."""
+
+        normalized_ticker = self._validate_supported_ticker(ticker)
+        latest_price_date = self.repository.latest_price_date(normalized_ticker, self.source)  # type: ignore[attr-defined]
+        price_history = self.repository.get_price_history_frame(  # type: ignore[attr-defined]
+            normalized_ticker,
+            source=self.source,
+        )
+        if latest_price_date is None or price_history.empty:
+            raise TickerNotFoundError(f"No persisted {self.source} prices exist for {normalized_ticker}")
+        if len(price_history) < MINIMUM_PRICE_OBSERVATIONS:
+            raise InsufficientHistoryError(
+                f"Ticker {normalized_ticker} needs at least {MINIMUM_PRICE_OBSERVATIONS} price observations"
+            )
+
+        features = MarketFeaturePipeline(self.repository).build_for_ticker(
+            normalized_ticker,
+            source=self.source,
+            inference_ready=True,
+        )
+        if features.empty:
+            raise InsufficientHistoryError(
+                f"Ticker {normalized_ticker} has no complete causal feature row"
+            )
+
+        latest_features = features.iloc[[-1]].copy()
+        as_of_date = pd.Timestamp(latest_features["date"].iloc[0]).date()
+        if as_of_date != latest_price_date:
+            raise MissingMarketContextError(
+                f"Latest {normalized_ticker} price date {latest_price_date} has no matching SPY/VIX context"
+            )
+        return normalized_ticker, latest_features
 
     @staticmethod
     def _normalize_ticker(ticker: str) -> str:

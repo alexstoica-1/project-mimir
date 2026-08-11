@@ -8,6 +8,15 @@ const elements = {
   forecastValue: document.querySelector("#forecast-value"),
   resultTicker: document.querySelector("#result-ticker"),
   asOfDate: document.querySelector("#as-of-date"),
+  marketSummary: document.querySelector("#market-summary"),
+  snapshotAsOfDate: document.querySelector("#snapshot-as-of"),
+  snapshotPrice: document.querySelector("#snapshot-price"),
+  snapshotReturn1d: document.querySelector("#snapshot-return-1d"),
+  snapshotReturn5d: document.querySelector("#snapshot-return-5d"),
+  snapshotReturn20d: document.querySelector("#snapshot-return-20d"),
+  snapshotRv20d: document.querySelector("#snapshot-rv-20d"),
+  snapshotDrawdown: document.querySelector("#snapshot-drawdown"),
+  snapshotVolumeRatio: document.querySelector("#snapshot-volume-ratio"),
   errorMessage: document.querySelector("#error-message"),
   modelName: document.querySelector("#model-name"),
   modelVersion: document.querySelector("#model-version"),
@@ -25,8 +34,10 @@ const elements = {
 const historyState = { range: "1y" };
 const svgNamespace = "http://www.w3.org/2000/svg";
 
-function showError(message) {
-  elements.resultCard.classList.add("is-hidden");
+function showError(message, hideForecast = true) {
+  if (hideForecast) {
+    elements.resultCard.classList.add("is-hidden");
+  }
   elements.errorMessage.textContent = message;
   elements.errorCard.classList.remove("is-hidden");
 }
@@ -166,6 +177,40 @@ function formatPercent(value) {
   return `${(value * 100).toFixed(2)}%`;
 }
 
+function renderSignedPercent(element, value) {
+  element.textContent = `${value > 0 ? "+" : ""}${formatPercent(value)}`;
+  element.classList.toggle("metric-positive", value > 0);
+  element.classList.toggle("metric-negative", value < 0);
+}
+
+function renderMarketSummary(summary) {
+  elements.snapshotAsOfDate.textContent = `As of ${formatDate(summary.as_of_date)}`;
+  elements.snapshotPrice.textContent = `$${formatNumber(summary.adjusted_close)}`;
+  renderSignedPercent(elements.snapshotReturn1d, summary.return_1d);
+  renderSignedPercent(elements.snapshotReturn5d, summary.return_5d);
+  renderSignedPercent(elements.snapshotReturn20d, summary.return_20d);
+  elements.snapshotRv20d.textContent = formatPercent(summary.rv_20d);
+  elements.snapshotDrawdown.textContent = formatPercent(summary.drawdown);
+  elements.snapshotVolumeRatio.textContent = `${formatNumber(summary.volume_ratio_20d)}x`;
+  elements.marketSummary.classList.remove("is-hidden");
+}
+
+async function loadMarketSummary(ticker) {
+  elements.marketSummary.classList.add("is-hidden");
+
+  try {
+    const response = await fetch(`/v1/market-summary/${encodeURIComponent(ticker)}`);
+    const summary = await readJson(response);
+    if (!response.ok) {
+      showError(messageForResponse(response.status, summary.detail), false);
+      return;
+    }
+    renderMarketSummary(summary);
+  } catch {
+    showError("The forecast succeeded, but the market snapshot could not be loaded.", false);
+  }
+}
+
 function renderHistoryTable(points) {
   elements.historyTableBody.replaceChildren();
   for (const point of points.slice(-20).reverse()) {
@@ -219,6 +264,7 @@ async function requestPrediction(event) {
   event.preventDefault();
   clearError();
   elements.resultCard.classList.add("is-hidden");
+  elements.marketSummary.classList.add("is-hidden");
   elements.button.disabled = true;
   elements.button.textContent = "Calculating…";
 
@@ -237,6 +283,7 @@ async function requestPrediction(event) {
     elements.resultTicker.textContent = prediction.ticker;
     elements.asOfDate.textContent = formatDate(prediction.as_of_date);
     elements.resultCard.classList.remove("is-hidden");
+    await loadMarketSummary(prediction.ticker);
   } catch {
     showError("The API could not be reached. Check that the service is running and try again.");
   } finally {

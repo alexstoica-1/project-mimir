@@ -5,10 +5,15 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from src.api.dependencies import get_prediction_service
-from src.schemas.prediction import MarketHistoryPointResponse, MarketHistoryResponse
+from src.schemas.prediction import (
+    MarketHistoryPointResponse,
+    MarketHistoryResponse,
+    MarketSummaryResponse,
+)
 from src.services.prediction_service import (
     InsufficientHistoryError,
     LightGBMVolatilityPredictionService,
+    MissingMarketContextError,
     PredictionServiceError,
     TickerNotFoundError,
     UnsupportedTickerError,
@@ -16,6 +21,25 @@ from src.services.prediction_service import (
 
 router = APIRouter(prefix="/v1", tags=["market data"])
 HistoryRange = Annotated[Literal["3m", "6m", "1y"], Query(alias="range")]
+
+
+@router.get("/market-summary/{ticker}", response_model=MarketSummaryResponse)
+def get_market_summary(
+    ticker: str,
+    service: LightGBMVolatilityPredictionService = Depends(get_prediction_service),
+) -> MarketSummaryResponse:
+    """Return latest causal market indicators for one supported ticker."""
+
+    try:
+        summary = service.get_market_summary(ticker)
+    except TickerNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (UnsupportedTickerError, InsufficientHistoryError, MissingMarketContextError) as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except PredictionServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+    return MarketSummaryResponse(**summary.__dict__)
 
 
 @router.get("/market-data/{ticker}", response_model=MarketHistoryResponse)

@@ -242,13 +242,43 @@ select:disabled {
 }
 
 .result-details,
-.model-details {
+.model-details,
+.snapshot-details {
   gap: 1rem;
   margin: 1.5rem 0 0;
 }
 
 .market-history {
   margin-top: 1rem;
+}
+
+.summary-card {
+  border-color: #365470;
+}
+
+.snapshot-price {
+  margin-top: 1.25rem;
+}
+
+.snapshot-price strong {
+  display: block;
+  margin-top: 0.25rem;
+  color: #d5e7ff;
+  font-size: clamp(2rem, 8vw, 3rem);
+  letter-spacing: -0.05em;
+}
+
+.snapshot-details {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.metric-positive {
+  color: var(--accent);
+}
+
+.metric-negative {
+  color: var(--danger);
 }
 
 .chart-grid {
@@ -388,6 +418,10 @@ footer {
   .history-controls {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .snapshot-details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .history-controls > button,

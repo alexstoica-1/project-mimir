@@ -52,6 +52,20 @@ class MarketHistoryResponse(BaseModel):
     points: list[MarketHistoryPointResponse]
 
 
+class MarketSummaryResponse(BaseModel):
+    """Latest causal market indicators for one supported ticker."""
+
+    ticker: str
+    as_of_date: date
+    adjusted_close: float
+    return_1d: float
+    return_5d: float
+    return_20d: float
+    rv_20d: float = Field(ge=0)
+    drawdown: float
+    volume_ratio_20d: float = Field(ge=0)
+
+
 class HealthResponse(BaseModel):
     """Readiness response for the API, database, and model artifact."""
 
