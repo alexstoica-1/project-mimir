@@ -37,6 +37,7 @@ const elements = {
 const historyState = { range: "1y" };
 const modelState = { championModelId: "", models: new Map() };
 const svgNamespace = "http://www.w3.org/2000/svg";
+const historyTableRowLimit = 10;
 
 function showError(message, hideForecast = true) {
   if (hideForecast) {
@@ -266,7 +267,7 @@ async function loadMarketSummary(ticker) {
 
 function renderHistoryTable(points) {
   elements.historyTableBody.replaceChildren();
-  for (const point of points.slice(-20).reverse()) {
+  for (const point of points.slice(-historyTableRowLimit).reverse()) {
     const row = document.createElement("tr");
     const cells = [
       formatDate(point.date),
@@ -303,7 +304,8 @@ async function loadMarketHistory() {
     renderLineChart(elements.priceChart, history.points, "adjusted_close", (value) => formatNumber(value));
     renderLineChart(elements.volatilityChart, history.points, "rv_20d", formatPercent);
     renderHistoryTable(history.points);
-    elements.historySummary.textContent = `${history.points.length} of ${history.available_observations} causal rows`;
+    const displayedRows = Math.min(history.points.length, historyTableRowLimit);
+    elements.historySummary.textContent = `Showing latest ${displayedRows} of ${history.points.length} selected rows`;
     elements.marketHistory.classList.remove("is-hidden");
   } catch {
     showError("Market history could not be loaded. Check the API and try again.");

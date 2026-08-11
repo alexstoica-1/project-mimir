@@ -29,7 +29,7 @@ body {
 }
 
 .page-shell {
-  width: min(100% - 2rem, 760px);
+  width: min(100% - 2rem, 1100px);
   margin: 0 auto;
   padding: 4.5rem 0 2.5rem;
 }
@@ -78,7 +78,7 @@ p {
 }
 
 h1 {
-  max-width: 12ch;
+  max-width: 20ch;
   margin: 1rem 0 0.7rem;
   font-size: clamp(2.45rem, 8vw, 4.5rem);
   letter-spacing: -0.055em;
@@ -454,7 +454,7 @@ footer {
 
 @media (max-width: 560px) {
   .page-shell {
-    width: min(100% - 1.25rem, 760px);
+    width: min(100% - 1.25rem, 1100px);
     padding-top: 2rem;
   }
 

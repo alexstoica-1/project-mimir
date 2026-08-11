@@ -478,12 +478,14 @@ def test_dashboard_and_static_assets_are_served(trained_artifact, trained_lstm_a
         script = client.get("/static/app.js")
 
     assert dashboard.status_code == 200
-    assert "MIMIR · Volatility Forecast" in dashboard.text
+    assert "Volatility Forecast and Market Data" in dashboard.text
     assert 'id="forecast-predictions"' in dashboard.text
     assert 'id="model-selector"' in dashboard.text
     assert 'href="/static/styles.css"' in dashboard.text
     assert stylesheet.status_code == 200
     assert "--background: #09111f" in stylesheet.text
+    assert "width: min(100% - 2rem, 1100px)" in stylesheet.text
+    assert "max-width: 20ch" in stylesheet.text
     assert script.status_code == 200
     assert 'fetch("/v1/model")' in script.text
     assert "model.models" in script.text
@@ -491,3 +493,5 @@ def test_dashboard_and_static_assets_are_served(trained_artifact, trained_lstm_a
     assert "prediction.company_name" in script.text
     assert "/v1/market-summary/${encodeURIComponent(ticker)}" in script.text
     assert "/v1/market-data/${encodeURIComponent(ticker)}?range=${historyState.range}" in script.text
+    assert "const historyTableRowLimit = 10" in script.text
+    assert "Showing latest ${displayedRows} of ${history.points.length} selected rows" in script.text
