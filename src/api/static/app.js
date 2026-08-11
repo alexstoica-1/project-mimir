@@ -32,9 +32,11 @@ const elements = {
   volatilityChart: document.querySelector("#volatility-chart"),
   historySummary: document.querySelector("#history-summary"),
   historyTableBody: document.querySelector("#history-table-body"),
+  historyPageNewer: document.querySelector("#history-page-newer"),
+  historyPageOlder: document.querySelector("#history-page-older"),
 };
 
-const historyState = { range: "1y" };
+const historyState = { range: "1y", points: [], page: 0 };
 const modelState = { championModelId: "", models: new Map() };
 const svgNamespace = "http://www.w3.org/2000/svg";
 const historyTableRowLimit = 10;
@@ -54,6 +56,7 @@ function clearError() {
 
 function setHistoryRange(range) {
   historyState.range = range;
+  historyState.page = 0;
   for (const button of elements.rangeButtons) {
     const selected = button.dataset.range === range;
     button.classList.toggle("is-selected", selected);
@@ -265,9 +268,14 @@ async function loadMarketSummary(ticker) {
   }
 }
 
-function renderHistoryTable(points) {
+function renderHistoryTable() {
+  const points = historyState.points;
+  const totalPages = Math.ceil(points.length / historyTableRowLimit);
+  const pageStart = historyState.page * historyTableRowLimit;
+  const pagePoints = points.slice().reverse().slice(pageStart, pageStart + historyTableRowLimit);
+
   elements.historyTableBody.replaceChildren();
-  for (const point of points.slice(-historyTableRowLimit).reverse()) {
+  for (const point of pagePoints) {
     const row = document.createElement("tr");
     const cells = [
       formatDate(point.date),
@@ -285,6 +293,22 @@ function renderHistoryTable(points) {
     }
     elements.historyTableBody.append(row);
   }
+
+  const firstRow = pageStart + 1;
+  const lastRow = pageStart + pagePoints.length;
+  elements.historySummary.textContent = `Page ${historyState.page + 1} of ${totalPages} · rows ${firstRow}–${lastRow} of ${points.length}`;
+  elements.historyPageNewer.disabled = historyState.page === 0;
+  elements.historyPageOlder.disabled = historyState.page === totalPages - 1;
+}
+
+function moveHistoryPage(direction) {
+  const totalPages = Math.ceil(historyState.points.length / historyTableRowLimit);
+  const nextPage = Math.min(Math.max(historyState.page + direction, 0), totalPages - 1);
+  if (nextPage === historyState.page) {
+    return;
+  }
+  historyState.page = nextPage;
+  renderHistoryTable();
 }
 
 async function loadMarketHistory() {
@@ -304,9 +328,9 @@ async function loadMarketHistory() {
     }
     renderLineChart(elements.priceChart, history.points, "adjusted_close", (value) => formatNumber(value));
     renderLineChart(elements.volatilityChart, history.points, "rv_20d", formatPercent);
-    renderHistoryTable(history.points);
-    const displayedRows = Math.min(history.points.length, historyTableRowLimit);
-    elements.historySummary.textContent = `Showing latest ${displayedRows} of ${history.points.length} selected rows`;
+    historyState.points = history.points;
+    historyState.page = 0;
+    renderHistoryTable();
     elements.marketHistory.classList.remove("is-hidden");
   } catch {
     showError("Market history could not be loaded. Check the API and try again.");
@@ -359,4 +383,6 @@ for (const button of elements.rangeButtons) {
   button.addEventListener("click", () => setHistoryRange(button.dataset.range));
 }
 elements.historyButton.addEventListener("click", loadMarketHistory);
+elements.historyPageNewer.addEventListener("click", () => moveHistoryPage(-1));
+elements.historyPageOlder.addEventListener("click", () => moveHistoryPage(1));
 loadModel();

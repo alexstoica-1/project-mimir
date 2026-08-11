@@ -78,8 +78,8 @@ p {
 }
 
 h1 {
-  max-width: 20ch;
-  margin: 1rem 0 0.7rem;
+  max-width: none;
+  margin: 0 0 0.7rem;
   font-size: clamp(2.45rem, 8vw, 4.5rem);
   letter-spacing: -0.055em;
   line-height: 0.96;
@@ -361,6 +361,27 @@ figcaption h2 {
   margin-top: 1rem;
 }
 
+.table-actions,
+.history-pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.table-page-button {
+  min-width: 2.45rem;
+  min-height: 2.45rem;
+  padding: 0;
+  border-color: var(--border);
+  color: var(--text);
+  background: #0a1525;
+  font-size: 1.1rem;
+}
+
+.table-page-button:hover:not(:disabled) {
+  background: var(--surface-raised);
+}
+
 .table-wrap {
   overflow-x: auto;
   margin-top: 1.25rem;
@@ -471,6 +492,16 @@ footer {
 
   .forecast-grid {
     grid-template-columns: 1fr;
+  }
+
+  .table-panel .panel-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .table-actions {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .history-controls > button,

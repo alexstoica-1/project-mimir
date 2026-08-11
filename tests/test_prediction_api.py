@@ -496,7 +496,7 @@ def test_dashboard_and_static_assets_are_served(trained_artifact, trained_lstm_a
     assert stylesheet.status_code == 200
     assert "--background: #09111f" in stylesheet.text
     assert "width: min(100% - 2rem, 1100px)" in stylesheet.text
-    assert "max-width: 20ch" in stylesheet.text
+    assert "max-width: none" in stylesheet.text
     assert script.status_code == 200
     assert 'fetch("/v1/model")' in script.text
     assert "model.models" in script.text
@@ -505,7 +505,11 @@ def test_dashboard_and_static_assets_are_served(trained_artifact, trained_lstm_a
     assert "/v1/market-summary/${encodeURIComponent(ticker)}" in script.text
     assert "/v1/market-data/${encodeURIComponent(ticker)}?range=${historyState.range}" in script.text
     assert "const historyTableRowLimit = 10" in script.text
-    assert "Showing latest ${displayedRows} of ${history.points.length} selected rows" in script.text
+    assert "Page ${historyState.page + 1} of ${totalPages}" in script.text
     assert 'data-range="1m"' in dashboard.text
     assert 'data-range="5y"' in dashboard.text
     assert "point.return_5d" in script.text
+    assert 'id="history-page-newer"' in dashboard.text
+    assert 'id="history-page-older"' in dashboard.text
+    assert "moveHistoryPage(-1)" in script.text
+    assert "moveHistoryPage(1)" in script.text

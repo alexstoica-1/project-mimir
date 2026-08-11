@@ -150,7 +150,13 @@
               <p class="eyebrow">Latest observations</p>
               <h2 id="table-heading">Engineered indicator table</h2>
             </div>
-            <span id="history-summary" class="status">—</span>
+            <div class="table-actions">
+              <span id="history-summary" class="status">—</span>
+              <div class="history-pagination" aria-label="Table page navigation">
+                <button id="history-page-newer" class="table-page-button" type="button" disabled aria-label="Show newer observations">←</button>
+                <button id="history-page-older" class="table-page-button" type="button" disabled aria-label="Show older observations">→</button>
+              </div>
+            </div>
           </div>
           <div class="table-wrap">
             <table>
