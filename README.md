@@ -1,4 +1,7 @@
-# MIMIR
+# Market Data and Volatility Forecasting Platform
+
+## DEMO 
+https://github.com/user-attachments/assets/46b05c1d-376d-42ea-a49a-f88cbc33c6b2
 
 Market Intelligence & Machine-learning for Investment Research (MIMIR) is a
 market-data and volatility-forecasting project. It collects daily market data,
