@@ -13,6 +13,7 @@ from src.ml.data import (
     chronological_split,
     inverse_target,
     load_dataset,
+    make_latest_sequence,
     make_sequence_arrays,
     transform_target,
 )
@@ -109,6 +110,20 @@ def test_lstm_sequences_are_ticker_isolated() -> None:
     assert not metadata.duplicated(["ticker", "date"]).any()
 
 
+def test_lstm_live_sequence_is_target_free_and_ticker_isolated() -> None:
+    frame = synthetic_model_frame()
+    splits = chronological_split(frame)
+    preprocessor = FeaturePreprocessor.fit(splits.train)
+    live_frame = frame[frame["ticker"].eq("AAA")].drop(columns=TARGET_COLUMN)
+    sequence, metadata = make_latest_sequence(live_frame, preprocessor, lookback=10)
+
+    assert TARGET_COLUMN not in live_frame.columns
+    assert sequence.shape == (1, 10, len(preprocessor.output_columns))
+    assert metadata.to_dict("records") == [{"ticker": "AAA", "date": live_frame["date"].iloc[-1]}]
+    with pytest.raises(ValueError, match="exactly one ticker"):
+        make_latest_sequence(frame.drop(columns=TARGET_COLUMN), preprocessor, lookback=10)
+
+
 def test_lightgbm_smoke_fit_and_predict() -> None:
     frame = synthetic_model_frame()
     splits = chronological_split(frame)
@@ -170,6 +185,11 @@ def test_lstm_smoke_fit_and_predict() -> None:
     assert len(predictions) == len(metadata) > 0
     assert np.isfinite(predictions).all()
     assert (predictions >= 0).all()
+    live_prediction = result.predict_latest(
+        frame[frame["ticker"].eq("AAA")].drop(columns=TARGET_COLUMN)
+    )
+    assert np.isfinite(live_prediction)
+    assert live_prediction >= 0
 
 
 def test_lstm_save_and_load_preserves_predictions(tmp_path) -> None:
@@ -196,6 +216,8 @@ def test_lstm_save_and_load_preserves_predictions(tmp_path) -> None:
 
     assert original_metadata.equals(loaded_metadata)
     assert np.allclose(original_predictions, loaded_predictions)
+    live_frame = frame[frame["ticker"].eq("AAA")].drop(columns=TARGET_COLUMN)
+    assert result.predict_latest(live_frame) == pytest.approx(result.load(path).predict_latest(live_frame))
 
 
 def test_mlflow_smoke_run(tmp_path) -> None:

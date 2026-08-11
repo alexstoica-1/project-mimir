@@ -12,9 +12,13 @@ import pandas as pd
 
 from src.features.pipeline import FEATURE_COLUMNS, MarketFeaturePipeline
 from src.ml.lightgbm_model import LightGBMRegressorModel
+from src.ml.lstm_model import LSTMTrainingResult
 
 MINIMUM_PRICE_OBSERVATIONS = 61
 FORECAST_HORIZON_TRADING_DAYS = 20
+CHAMPION_MODEL_ID = "lightgbm-global"
+TARGET_NAME = "target_rv_20d"
+TARGET_DESCRIPTION = "20-trading-day annualized realized volatility"
 MARKET_HISTORY_RANGES = {"3m": 63, "6m": 126, "1y": 252}
 MARKET_HISTORY_COLUMNS = [
     "date",
@@ -55,19 +59,30 @@ class ModelMetadata:
     """Stable, response-safe metadata for the deployed artifact."""
 
     name: str
+    display_name: str
     version: str
     artifact_name: str
     supported_tickers: tuple[str, ...]
     feature_count: int
+    input_requirement: str
+    lookback_observations: int | None
     training_parameters: dict[str, object]
 
 
 @dataclass(frozen=True)
 class VolatilityPrediction:
-    """One latest-date global LightGBM volatility forecast."""
+    """Latest-date forecasts from every model served by this API."""
 
     ticker: str
     as_of_date: date
+    champion_model_id: str
+    predictions: tuple["ModelForecast", ...]
+
+
+@dataclass(frozen=True)
+class ModelForecast:
+    """One model's latest-date annualized volatility forecast."""
+
     predicted_rv_20d: float
     model: ModelMetadata
 
@@ -123,12 +138,58 @@ def build_model_metadata(
     tickers = tuple(sorted(str(value) for value in model.preprocessor.ticker_encoder.categories_[0]))
     return ModelMetadata(
         name="lightgbm-global",
+        display_name="LightGBM",
         version=sha256(path.read_bytes()).hexdigest()[:12],
         artifact_name=path.name,
         supported_tickers=tickers,
         feature_count=len(FEATURE_COLUMNS),
+        input_requirement="Latest causal feature row",
+        lookback_observations=None,
         training_parameters=dict(model.params),
     )
+
+
+def build_lstm_model_metadata(
+    model: LSTMTrainingResult,
+    artifact_path: str | Path,
+) -> ModelMetadata:
+    """Build response-safe metadata from a saved global LSTM artifact."""
+
+    path = Path(artifact_path)
+    if not path.is_file():
+        raise PredictionUnavailableError(f"LSTM artifact does not exist: {path}")
+    tickers = tuple(sorted(str(value) for value in model.preprocessor.ticker_encoder.categories_[0]))
+    return ModelMetadata(
+        name="lstm-global",
+        display_name="LSTM",
+        version=sha256(path.read_bytes()).hexdigest()[:12],
+        artifact_name=path.name,
+        supported_tickers=tickers,
+        feature_count=len(model.preprocessor.feature_columns),
+        input_requirement=f"Latest {model.lookback} causal feature rows",
+        lookback_observations=model.lookback,
+        training_parameters={
+            "hidden_size": model.model.hidden_size,
+            "num_layers": model.model.num_layers,
+            "dropout": model.model.dropout,
+        },
+    )
+
+
+def validate_served_model_compatibility(
+    lightgbm_model: LightGBMRegressorModel,
+    lstm_model: LSTMTrainingResult,
+) -> None:
+    """Require both served models to use the same ticker and feature universe."""
+
+    if lightgbm_model.preprocessor is None:
+        raise PredictionUnavailableError("Deployed LightGBM artifact has no fitted preprocessor")
+    if list(lightgbm_model.preprocessor.feature_columns) != list(lstm_model.preprocessor.feature_columns):
+        raise PredictionUnavailableError("LightGBM and LSTM artifacts use different feature columns")
+    lightgbm_tickers = set(lightgbm_model.preprocessor.ticker_encoder.categories_[0])
+    lstm_tickers = set(lstm_model.preprocessor.ticker_encoder.categories_[0])
+    if lightgbm_tickers != lstm_tickers:
+        raise PredictionUnavailableError("LightGBM and LSTM artifacts support different ticker universes")
 
 
 class LightGBMVolatilityPredictionService:
@@ -139,28 +200,47 @@ class LightGBMVolatilityPredictionService:
         *,
         model: LightGBMRegressorModel,
         metadata: ModelMetadata,
+        lstm_model: LSTMTrainingResult,
+        lstm_metadata: ModelMetadata,
         repository: object,
         source: str = "yfinance",
     ) -> None:
         self.model = model
         self.metadata = metadata
+        self.lstm_model = lstm_model
+        self.lstm_metadata = lstm_metadata
         self.repository = repository
         self.source = source
 
     def predict_latest(self, ticker: str) -> VolatilityPrediction:
-        """Predict the next 20-day realized volatility from the latest raw prices."""
+        """Predict the next 20-day realized volatility with both served models."""
 
-        normalized_ticker, latest_features = self._get_latest_usable_features(ticker)
+        normalized_ticker, features = self._get_usable_inference_features(ticker)
+        latest_features = features.iloc[[-1]].copy()
         as_of_date = pd.Timestamp(latest_features["date"].iloc[0]).date()
 
-        prediction = float(self.model.predict(latest_features)[0])
-        if not np.isfinite(prediction) or prediction < 0:
-            raise PredictionUnavailableError("Model produced an invalid volatility prediction")
+        lightgbm_prediction = float(self.model.predict(latest_features)[0])
+        if not np.isfinite(lightgbm_prediction) or lightgbm_prediction < 0:
+            raise PredictionUnavailableError("LightGBM model produced an invalid volatility prediction")
+        if len(features) < self.lstm_model.lookback:
+            raise InsufficientHistoryError(
+                f"Ticker {normalized_ticker} has {len(features)} complete feature rows; "
+                f"LSTM requires {self.lstm_model.lookback}"
+            )
+        try:
+            lstm_prediction = self.lstm_model.predict_latest(features)
+        except ValueError as exc:
+            raise PredictionUnavailableError(f"LSTM could not build a live prediction sequence: {exc}") from exc
+        if not np.isfinite(lstm_prediction) or lstm_prediction < 0:
+            raise PredictionUnavailableError("LSTM model produced an invalid volatility prediction")
         return VolatilityPrediction(
             ticker=normalized_ticker,
             as_of_date=as_of_date,
-            predicted_rv_20d=prediction,
-            model=self.metadata,
+            champion_model_id=CHAMPION_MODEL_ID,
+            predictions=(
+                ModelForecast(predicted_rv_20d=lightgbm_prediction, model=self.metadata),
+                ModelForecast(predicted_rv_20d=lstm_prediction, model=self.lstm_metadata),
+            ),
         )
 
     def get_market_summary(self, ticker: str) -> MarketSummary:
@@ -233,6 +313,12 @@ class LightGBMVolatilityPredictionService:
     def _get_latest_usable_features(self, ticker: str) -> tuple[str, pd.DataFrame]:
         """Build the latest inference row and require exact-date market context."""
 
+        normalized_ticker, features = self._get_usable_inference_features(ticker)
+        return normalized_ticker, features.iloc[[-1]].copy()
+
+    def _get_usable_inference_features(self, ticker: str) -> tuple[str, pd.DataFrame]:
+        """Build all complete causal rows and require current market context."""
+
         normalized_ticker = self._validate_supported_ticker(ticker)
         latest_price_date = self.repository.latest_price_date(normalized_ticker, self.source)  # type: ignore[attr-defined]
         price_history = self.repository.get_price_history_frame(  # type: ignore[attr-defined]
@@ -256,13 +342,12 @@ class LightGBMVolatilityPredictionService:
                 f"Ticker {normalized_ticker} has no complete causal feature row"
             )
 
-        latest_features = features.iloc[[-1]].copy()
-        as_of_date = pd.Timestamp(latest_features["date"].iloc[0]).date()
+        as_of_date = pd.Timestamp(features["date"].iloc[-1]).date()
         if as_of_date != latest_price_date:
             raise MissingMarketContextError(
                 f"Latest {normalized_ticker} price date {latest_price_date} has no matching SPY/VIX context"
             )
-        return normalized_ticker, latest_features
+        return normalized_ticker, features
 
     @staticmethod
     def _normalize_ticker(ticker: str) -> str:

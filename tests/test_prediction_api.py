@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from copy import deepcopy
 
 import numpy as np
 import pandas as pd
@@ -10,16 +11,19 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sklearn.preprocessing import OneHotEncoder
 
 from src.api.dependencies import get_prediction_service
 from src.api.main import create_app
 from src.features.pipeline import BASE_PRICE_COLUMNS, FEATURE_COLUMNS, MarketFeaturePipeline
 from src.ml.lightgbm_model import LightGBMRegressorModel
+from src.ml.lstm_model import LSTMTrainingResult, VolatilityLSTM
 from src.services.prediction_service import (
     InsufficientHistoryError,
     LightGBMVolatilityPredictionService,
     MARKET_HISTORY_RANGES,
     MissingMarketContextError,
+    build_lstm_model_metadata,
     build_model_metadata,
 )
 
@@ -107,10 +111,33 @@ def trained_artifact(tmp_path):
 
 
 @pytest.fixture()
-def prediction_service(trained_artifact):
+def trained_lstm_artifact(tmp_path, trained_artifact):
+    """Save a small compatible LSTM artifact for API startup and service tests."""
+
+    _lightgbm_path, lightgbm_model = trained_artifact
+    assert lightgbm_model.preprocessor is not None
+    lstm = LSTMTrainingResult(
+        model=VolatilityLSTM(
+            len(lightgbm_model.preprocessor.output_columns),
+            hidden_size=4,
+            num_layers=1,
+            dropout=0.0,
+        ),
+        preprocessor=lightgbm_model.preprocessor,
+        lookback=60,
+        device="cpu",
+        history=pd.DataFrame(),
+    )
+    path = lstm.save(tmp_path / "lstm_global.pt")
+    return path, lstm
+
+
+@pytest.fixture()
+def prediction_service(trained_artifact, trained_lstm_artifact):
     """Create a service backed by fully aligned synthetic market data."""
 
     path, model = trained_artifact
+    lstm_path, lstm_model = trained_lstm_artifact
     repository = FakeMarketRepository(
         {
             "AAPL": _synthetic_prices("AAPL"),
@@ -122,15 +149,18 @@ def prediction_service(trained_artifact):
     return LightGBMVolatilityPredictionService(
         model=model,
         metadata=build_model_metadata(model, path),
+        lstm_model=lstm_model,
+        lstm_metadata=build_lstm_model_metadata(lstm_model, lstm_path),
         repository=repository,
     )
 
 
 @pytest.fixture()
-def market_history_service(trained_artifact):
+def market_history_service(trained_artifact, trained_lstm_artifact):
     """Create a service with enough complete rows for all history ranges."""
 
     path, model = trained_artifact
+    lstm_path, lstm_model = trained_lstm_artifact
     repository = FakeMarketRepository(
         {
             "AAPL": _synthetic_prices("AAPL", periods=400),
@@ -142,6 +172,8 @@ def market_history_service(trained_artifact):
     return LightGBMVolatilityPredictionService(
         model=model,
         metadata=build_model_metadata(model, path),
+        lstm_model=lstm_model,
+        lstm_metadata=build_lstm_model_metadata(lstm_model, lstm_path),
         repository=repository,
     )
 
@@ -152,18 +184,29 @@ def test_prediction_service_uses_latest_targetless_feature_row(prediction_servic
         "AAPL",
         inference_ready=True,
     ).iloc[[-1]]
-    direct_prediction = float(prediction_service.model.predict(feature_row)[0])
+    direct_lightgbm_prediction = float(prediction_service.model.predict(feature_row)[0])
+    direct_lstm_prediction = prediction_service.lstm_model.predict_latest(
+        MarketFeaturePipeline(prediction_service.repository).build_for_ticker(
+            "AAPL",
+            inference_ready=True,
+        )
+    )
+    predictions = {item.model.name: item for item in forecast.predictions}
 
     assert forecast.ticker == "AAPL"
     assert forecast.as_of_date == date(2024, 7, 1)
-    assert np.isfinite(forecast.predicted_rv_20d)
-    assert forecast.predicted_rv_20d >= 0
-    assert forecast.predicted_rv_20d == pytest.approx(direct_prediction)
-    assert forecast.model.feature_count == len(FEATURE_COLUMNS)
+    assert forecast.champion_model_id == "lightgbm-global"
+    assert set(predictions) == {"lightgbm-global", "lstm-global"}
+    assert predictions["lightgbm-global"].predicted_rv_20d == pytest.approx(direct_lightgbm_prediction)
+    assert predictions["lstm-global"].predicted_rv_20d == pytest.approx(direct_lstm_prediction)
+    assert all(np.isfinite(item.predicted_rv_20d) and item.predicted_rv_20d >= 0 for item in predictions.values())
+    assert predictions["lightgbm-global"].model.feature_count == len(FEATURE_COLUMNS)
+    assert predictions["lstm-global"].model.lookback_observations == 60
 
 
-def test_prediction_service_rejects_short_history(trained_artifact) -> None:
+def test_prediction_service_rejects_short_history(trained_artifact, trained_lstm_artifact) -> None:
     path, model = trained_artifact
+    lstm_path, lstm_model = trained_lstm_artifact
     repository = FakeMarketRepository(
         {
             "AAPL": _synthetic_prices("AAPL", periods=30),
@@ -174,6 +217,8 @@ def test_prediction_service_rejects_short_history(trained_artifact) -> None:
     service = LightGBMVolatilityPredictionService(
         model=model,
         metadata=build_model_metadata(model, path),
+        lstm_model=lstm_model,
+        lstm_metadata=build_lstm_model_metadata(lstm_model, lstm_path),
         repository=repository,
     )
 
@@ -229,11 +274,12 @@ def test_market_history_rejects_incomplete_requested_range(prediction_service) -
         prediction_service.get_market_history("AAPL", "1y")
 
 
-def test_api_health_model_and_prediction_routes(trained_artifact, prediction_service) -> None:
+def test_api_health_model_and_prediction_routes(trained_artifact, trained_lstm_artifact, prediction_service) -> None:
     path, _model = trained_artifact
+    lstm_path, _lstm_model = trained_lstm_artifact
     engine = create_engine("sqlite+pysqlite:///:memory:")
     test_session_factory = sessionmaker(bind=engine)
-    app = create_app(model_path=path, session_factory=test_session_factory)
+    app = create_app(model_path=path, lstm_model_path=lstm_path, session_factory=test_session_factory)
     app.dependency_overrides[get_prediction_service] = lambda: prediction_service
 
     with TestClient(app) as client:
@@ -245,19 +291,72 @@ def test_api_health_model_and_prediction_routes(trained_artifact, prediction_ser
 
     assert health.status_code == 200
     assert health.json()["status"] == "ok"
+    assert health.json()["served_models"] == ["lightgbm-global", "lstm-global"]
     assert model.status_code == 200
-    assert model.json()["supported_tickers"] == ["AAPL"]
+    assert model.json()["champion_model_id"] == "lightgbm-global"
+    assert [item["model_id"] for item in model.json()["models"]] == ["lightgbm-global", "lstm-global"]
     assert prediction.status_code == 200
     assert prediction.json()["ticker"] == "AAPL"
-    assert prediction.json()["predicted_rv_20d"] >= 0
+    assert prediction.json()["champion_model_id"] == "lightgbm-global"
+    assert {item["model_id"] for item in prediction.json()["predictions"]} == {
+        "lightgbm-global", "lstm-global",
+    }
+    assert all(item["predicted_rv_20d"] >= 0 for item in prediction.json()["predictions"])
     assert unsupported.status_code == 422
     assert missing.status_code == 404
 
 
-def test_api_returns_market_history_and_expected_errors(trained_artifact, market_history_service) -> None:
-    path, _model = trained_artifact
+def test_api_startup_rejects_missing_or_incompatible_lstm_artifacts(
+    tmp_path,
+    trained_artifact,
+    trained_lstm_artifact,
+) -> None:
+    lightgbm_path, _lightgbm_model = trained_artifact
+    lstm_path, lstm_model = trained_lstm_artifact
     engine = create_engine("sqlite+pysqlite:///:memory:")
-    app = create_app(model_path=path, session_factory=sessionmaker(bind=engine))
+    session_factory = sessionmaker(bind=engine)
+
+    missing_app = create_app(
+        model_path=lightgbm_path,
+        lstm_model_path=tmp_path / "missing-lstm.pt",
+        session_factory=session_factory,
+    )
+    with pytest.raises(RuntimeError, match="Configured model artifact does not exist"):
+        with TestClient(missing_app):
+            pass
+
+    incompatible_preprocessor = deepcopy(lstm_model.preprocessor)
+    incompatible_preprocessor.ticker_encoder = OneHotEncoder(
+        handle_unknown="ignore",
+        sparse_output=False,
+    ).fit(pd.DataFrame({"ticker": ["MSFT"]}))
+    incompatible_preprocessor.output_columns = [
+        *incompatible_preprocessor.feature_columns,
+        "ticker_MSFT",
+    ]
+    incompatible_lstm = LSTMTrainingResult(
+        model=lstm_model.model,
+        preprocessor=incompatible_preprocessor,
+        lookback=lstm_model.lookback,
+        device="cpu",
+        history=pd.DataFrame(),
+    )
+    incompatible_path = incompatible_lstm.save(tmp_path / "incompatible-lstm.pt")
+    incompatible_app = create_app(
+        model_path=lightgbm_path,
+        lstm_model_path=incompatible_path,
+        session_factory=session_factory,
+    )
+    with pytest.raises(RuntimeError, match="different ticker universes"):
+        with TestClient(incompatible_app):
+            pass
+
+
+def test_api_returns_market_history_and_expected_errors(trained_artifact, trained_lstm_artifact, market_history_service) -> None:
+    path, _model = trained_artifact
+    lstm_path, _lstm_model = trained_lstm_artifact
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    app = create_app(model_path=path, lstm_model_path=lstm_path, session_factory=sessionmaker(bind=engine))
     app.dependency_overrides[get_prediction_service] = lambda: market_history_service
 
     with TestClient(app) as client:
@@ -279,10 +378,11 @@ def test_api_returns_market_history_and_expected_errors(trained_artifact, market
     assert invalid_range.status_code == 422
 
 
-def test_api_returns_market_summary_and_expected_errors(trained_artifact, prediction_service) -> None:
+def test_api_returns_market_summary_and_expected_errors(trained_artifact, trained_lstm_artifact, prediction_service) -> None:
     path, _model = trained_artifact
+    lstm_path, _lstm_model = trained_lstm_artifact
     engine = create_engine("sqlite+pysqlite:///:memory:")
-    app = create_app(model_path=path, session_factory=sessionmaker(bind=engine))
+    app = create_app(model_path=path, lstm_model_path=lstm_path, session_factory=sessionmaker(bind=engine))
     app.dependency_overrides[get_prediction_service] = lambda: prediction_service
 
     with TestClient(app) as client:
@@ -311,10 +411,11 @@ def test_api_returns_market_summary_and_expected_errors(trained_artifact, predic
     assert missing.status_code == 404
 
 
-def test_api_market_summary_requires_latest_market_context(trained_artifact, prediction_service) -> None:
+def test_api_market_summary_requires_latest_market_context(trained_artifact, trained_lstm_artifact, prediction_service) -> None:
     path, _model = trained_artifact
+    lstm_path, _lstm_model = trained_lstm_artifact
     engine = create_engine("sqlite+pysqlite:///:memory:")
-    app = create_app(model_path=path, session_factory=sessionmaker(bind=engine))
+    app = create_app(model_path=path, lstm_model_path=lstm_path, session_factory=sessionmaker(bind=engine))
     app.dependency_overrides[get_prediction_service] = lambda: prediction_service
     prediction_service.repository.frames["^VIX"] = prediction_service.repository.frames["^VIX"].iloc[:-1]
 
@@ -325,8 +426,9 @@ def test_api_market_summary_requires_latest_market_context(trained_artifact, pre
     assert "matching SPY/VIX context" in response.json()["detail"]
 
 
-def test_api_market_summary_rejects_short_history(trained_artifact) -> None:
+def test_api_market_summary_rejects_short_history(trained_artifact, trained_lstm_artifact) -> None:
     path, model = trained_artifact
+    lstm_path, lstm_model = trained_lstm_artifact
     repository = FakeMarketRepository(
         {
             "AAPL": _synthetic_prices("AAPL", periods=30),
@@ -337,10 +439,12 @@ def test_api_market_summary_rejects_short_history(trained_artifact) -> None:
     service = LightGBMVolatilityPredictionService(
         model=model,
         metadata=build_model_metadata(model, path),
+        lstm_model=lstm_model,
+        lstm_metadata=build_lstm_model_metadata(lstm_model, lstm_path),
         repository=repository,
     )
     engine = create_engine("sqlite+pysqlite:///:memory:")
-    app = create_app(model_path=path, session_factory=sessionmaker(bind=engine))
+    app = create_app(model_path=path, lstm_model_path=lstm_path, session_factory=sessionmaker(bind=engine))
     app.dependency_overrides[get_prediction_service] = lambda: service
 
     with TestClient(app) as client:
@@ -350,12 +454,13 @@ def test_api_market_summary_rejects_short_history(trained_artifact) -> None:
     assert "needs at least" in response.json()["detail"]
 
 
-def test_dashboard_and_static_assets_are_served(trained_artifact) -> None:
+def test_dashboard_and_static_assets_are_served(trained_artifact, trained_lstm_artifact) -> None:
     """The browser dashboard is packaged with the FastAPI application."""
 
     path, _model = trained_artifact
+    lstm_path, _lstm_model = trained_lstm_artifact
     engine = create_engine("sqlite+pysqlite:///:memory:")
-    app = create_app(model_path=path, session_factory=sessionmaker(bind=engine))
+    app = create_app(model_path=path, lstm_model_path=lstm_path, session_factory=sessionmaker(bind=engine))
 
     with TestClient(app) as client:
         dashboard = client.get("/")
@@ -364,11 +469,14 @@ def test_dashboard_and_static_assets_are_served(trained_artifact) -> None:
 
     assert dashboard.status_code == 200
     assert "MIMIR · Volatility Forecast" in dashboard.text
+    assert 'id="forecast-predictions"' in dashboard.text
+    assert 'id="model-selector"' in dashboard.text
     assert 'href="/static/styles.css"' in dashboard.text
     assert stylesheet.status_code == 200
     assert "--background: #09111f" in stylesheet.text
     assert script.status_code == 200
     assert 'fetch("/v1/model")' in script.text
+    assert "model.models" in script.text
     assert "/v1/predictions/${encodeURIComponent(ticker)}" in script.text
     assert "/v1/market-summary/${encodeURIComponent(ticker)}" in script.text
     assert "/v1/market-data/${encodeURIComponent(ticker)}?range=${historyState.range}" in script.text

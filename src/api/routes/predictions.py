@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from src.api.dependencies import get_prediction_service
-from src.schemas.prediction import PredictionResponse
+from src.schemas.prediction import ModelPredictionResponse, PredictionResponse
 from src.services.prediction_service import (
     FORECAST_HORIZON_TRADING_DAYS,
     InsufficientHistoryError,
@@ -11,6 +11,7 @@ from src.services.prediction_service import (
     MissingMarketContextError,
     PredictionServiceError,
     PredictionUnavailableError,
+    TARGET_DESCRIPTION,
     TickerNotFoundError,
     UnsupportedTickerError,
 )
@@ -37,8 +38,16 @@ def predict_latest_volatility(
     return PredictionResponse(
         ticker=forecast.ticker,
         as_of_date=forecast.as_of_date,
-        predicted_rv_20d=forecast.predicted_rv_20d,
+        target_description=TARGET_DESCRIPTION,
         forecast_horizon_trading_days=FORECAST_HORIZON_TRADING_DAYS,
-        model_name=forecast.model.name,
-        model_version=forecast.model.version,
+        champion_model_id=forecast.champion_model_id,
+        predictions=[
+            ModelPredictionResponse(
+                model_id=item.model.name,
+                display_name=item.model.display_name,
+                model_version=item.model.version,
+                predicted_rv_20d=item.predicted_rv_20d,
+            )
+            for item in forecast.predictions
+        ],
     )

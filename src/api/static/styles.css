@@ -228,9 +228,9 @@ select:disabled {
 }
 
 .forecast-value {
-  margin: 0.75rem 0 0;
+  margin: 0.65rem 0 0;
   color: #b7f5e6;
-  font-size: clamp(3rem, 13vw, 5rem);
+  font-size: clamp(2.2rem, 8vw, 3.6rem);
   font-weight: 780;
   letter-spacing: -0.075em;
   line-height: 0.95;
@@ -239,6 +239,42 @@ select:disabled {
 .forecast-label {
   margin: 0.45rem 0 0;
   color: var(--muted);
+}
+
+.forecast-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
+.forecast-model-card {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: rgb(9 17 31 / 40%);
+}
+
+.forecast-model-card.is-champion {
+  border-color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+
+.forecast-model-label,
+.forecast-model-version {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.forecast-model-label {
+  color: var(--text);
+}
+
+.forecast-model-version {
+  margin-top: 0.55rem;
+  font-weight: 500;
 }
 
 .result-details,
@@ -386,6 +422,15 @@ tbody tr:last-child td {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.model-selector-label {
+  margin-top: 1.25rem;
+}
+
+.model-selector {
+  width: 100%;
+  margin-top: 0.45rem;
+}
+
 .model-details > div {
   min-width: 0;
 }
@@ -422,6 +467,10 @@ footer {
 
   .snapshot-details {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .forecast-grid {
+    grid-template-columns: 1fr;
   }
 
   .history-controls > button,

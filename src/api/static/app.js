@@ -5,7 +5,7 @@ const elements = {
   status: document.querySelector("#api-status"),
   resultCard: document.querySelector("#result-card"),
   errorCard: document.querySelector("#error-card"),
-  forecastValue: document.querySelector("#forecast-value"),
+  forecastPredictions: document.querySelector("#forecast-predictions"),
   resultTicker: document.querySelector("#result-ticker"),
   asOfDate: document.querySelector("#as-of-date"),
   marketSummary: document.querySelector("#market-summary"),
@@ -20,8 +20,11 @@ const elements = {
   errorMessage: document.querySelector("#error-message"),
   modelName: document.querySelector("#model-name"),
   modelVersion: document.querySelector("#model-version"),
+  modelTarget: document.querySelector("#model-target"),
   featureCount: document.querySelector("#feature-count"),
   forecastHorizon: document.querySelector("#forecast-horizon"),
+  modelInput: document.querySelector("#model-input"),
+  modelSelector: document.querySelector("#model-selector"),
   rangeButtons: document.querySelectorAll(".range-button"),
   historyButton: document.querySelector("#history-button"),
   marketHistory: document.querySelector("#market-history"),
@@ -32,6 +35,7 @@ const elements = {
 };
 
 const historyState = { range: "1y" };
+const modelState = { championModelId: "", models: new Map() };
 const svgNamespace = "http://www.w3.org/2000/svg";
 
 function showError(message, hideForecast = true) {
@@ -94,19 +98,34 @@ async function loadModel() {
       throw new Error(model.detail || "The model information is unavailable.");
     }
 
+    const champion = model.models.find((item) => item.model_id === model.champion_model_id);
+    if (!champion) {
+      throw new Error("The API did not identify a champion model.");
+    }
+
+    modelState.championModelId = model.champion_model_id;
+    modelState.models = new Map(model.models.map((item) => [item.model_id, item]));
     elements.ticker.replaceChildren();
-    for (const ticker of model.supported_tickers) {
+    for (const ticker of champion.supported_tickers) {
       const option = document.createElement("option");
       option.value = ticker;
       option.textContent = ticker;
       elements.ticker.append(option);
     }
-    elements.modelName.textContent = model.model_name;
-    elements.modelVersion.textContent = model.model_version;
-    elements.featureCount.textContent = `${model.feature_count} engineered inputs`;
-    elements.forecastHorizon.textContent = `${model.forecast_horizon_trading_days} trading days`;
+    elements.modelSelector.replaceChildren();
+    for (const item of model.models) {
+      const option = document.createElement("option");
+      option.value = item.model_id;
+      option.textContent = item.model_id === model.champion_model_id
+        ? `${item.display_name} · Champion`
+        : `${item.display_name} · Comparison`;
+      elements.modelSelector.append(option);
+    }
+    elements.modelSelector.value = model.champion_model_id;
+    renderModelDetails(champion);
     elements.ticker.disabled = false;
     elements.button.disabled = false;
+    elements.modelSelector.disabled = false;
     elements.historyButton.disabled = false;
     for (const button of elements.rangeButtons) {
       button.disabled = false;
@@ -118,6 +137,15 @@ async function loadModel() {
     elements.status.textContent = "API unavailable";
     showError(message);
   }
+}
+
+function renderModelDetails(model) {
+  elements.modelName.textContent = model.display_name;
+  elements.modelVersion.textContent = model.model_version;
+  elements.modelTarget.textContent = model.target_name;
+  elements.featureCount.textContent = `${model.feature_count} engineered inputs`;
+  elements.forecastHorizon.textContent = `${model.forecast_horizon_trading_days} trading days`;
+  elements.modelInput.textContent = model.input_requirement;
 }
 
 function createSvgElement(name, attributes = {}) {
@@ -181,6 +209,31 @@ function renderSignedPercent(element, value) {
   element.textContent = `${value > 0 ? "+" : ""}${formatPercent(value)}`;
   element.classList.toggle("metric-positive", value > 0);
   element.classList.toggle("metric-negative", value < 0);
+}
+
+function renderForecasts(prediction) {
+  elements.forecastPredictions.replaceChildren();
+  for (const item of prediction.predictions) {
+    const card = document.createElement("article");
+    card.className = "forecast-model-card";
+    if (item.model_id === prediction.champion_model_id) {
+      card.classList.add("is-champion");
+    }
+
+    const label = document.createElement("p");
+    label.className = "forecast-model-label";
+    label.textContent = item.model_id === prediction.champion_model_id
+      ? `${item.display_name} · Champion`
+      : `${item.display_name} · Comparison`;
+    const value = document.createElement("p");
+    value.className = "forecast-value";
+    value.textContent = formatPercent(item.predicted_rv_20d);
+    const version = document.createElement("p");
+    version.className = "forecast-model-version";
+    version.textContent = `Version ${item.model_version}`;
+    card.append(label, value, version);
+    elements.forecastPredictions.append(card);
+  }
 }
 
 function renderMarketSummary(summary) {
@@ -279,7 +332,7 @@ async function requestPrediction(event) {
       return;
     }
 
-    elements.forecastValue.textContent = `${(prediction.predicted_rv_20d * 100).toFixed(2)}%`;
+    renderForecasts(prediction);
     elements.resultTicker.textContent = prediction.ticker;
     elements.asOfDate.textContent = formatDate(prediction.as_of_date);
     elements.resultCard.classList.remove("is-hidden");
@@ -293,6 +346,12 @@ async function requestPrediction(event) {
 }
 
 elements.form.addEventListener("submit", requestPrediction);
+elements.modelSelector.addEventListener("change", () => {
+  const selected = modelState.models.get(elements.modelSelector.value);
+  if (selected) {
+    renderModelDetails(selected);
+  }
+});
 for (const button of elements.rangeButtons) {
   button.addEventListener("click", () => setHistoryRange(button.dataset.range));
 }

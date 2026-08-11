@@ -14,9 +14,14 @@ from sqlalchemy import text
 from src.api.routes import market_data, models, predictions
 from src.config import settings
 from src.database.connection import SessionLocal
-from src.ml.predict import load_lightgbm
+from src.ml.predict import load_lightgbm, load_lstm
 from src.schemas.prediction import HealthResponse
-from src.services.prediction_service import ModelMetadata, build_model_metadata
+from src.services.prediction_service import (
+    ModelMetadata,
+    build_lstm_model_metadata,
+    build_model_metadata,
+    validate_served_model_compatibility,
+)
 
 STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
 
@@ -24,21 +29,31 @@ STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
 def create_app(
     *,
     model_path: str | Path | None = None,
+    lstm_model_path: str | Path | None = None,
     session_factory: Callable[[], Any] = SessionLocal,
     market_data_source: str | None = None,
 ) -> FastAPI:
-    """Create an app that loads one global LightGBM artifact at startup."""
+    """Create an app that loads compatible LightGBM and LSTM artifacts at startup."""
 
     configured_model_path = Path(model_path or settings.model_path)
+    configured_lstm_model_path = Path(lstm_model_path or settings.lstm_model_path)
     configured_source = market_data_source or settings.market_data_source
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        if not configured_model_path.is_file():
-            raise RuntimeError(f"Configured LightGBM artifact does not exist: {configured_model_path}")
+        missing_artifacts = [
+            str(path)
+            for path in (configured_model_path, configured_lstm_model_path)
+            if not path.is_file()
+        ]
+        if missing_artifacts:
+            raise RuntimeError(f"Configured model artifact does not exist: {', '.join(missing_artifacts)}")
         try:
             model = load_lightgbm(configured_model_path)
             metadata = build_model_metadata(model, configured_model_path)
+            lstm_model = load_lstm(configured_lstm_model_path)
+            lstm_metadata = build_lstm_model_metadata(lstm_model, configured_lstm_model_path)
+            validate_served_model_compatibility(model, lstm_model)
             with session_factory() as session:
                 session.execute(text("SELECT 1"))
         except Exception as exc:
@@ -46,6 +61,8 @@ def create_app(
 
         app.state.prediction_model = model
         app.state.model_metadata = metadata
+        app.state.lstm_model = lstm_model
+        app.state.lstm_model_metadata = lstm_metadata
         app.state.session_factory = session_factory
         app.state.market_data_source = configured_source
         yield
@@ -79,7 +96,11 @@ def create_app(
                 detail="Database is unavailable",
             ) from exc
         metadata = request.app.state.model_metadata
-        return HealthResponse(model_name=metadata.name, model_version=metadata.version)
+        return HealthResponse(
+            model_name=metadata.name,
+            model_version=metadata.version,
+            served_models=[metadata.name, request.app.state.lstm_model_metadata.name],
+        )
 
     return app
 

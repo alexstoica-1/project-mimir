@@ -27,6 +27,12 @@ def get_model_metadata(request: Request) -> ModelMetadata:
     return request.app.state.model_metadata
 
 
+def get_served_models_metadata(request: Request) -> tuple[ModelMetadata, ModelMetadata]:
+    """Return champion and comparison-model metadata loaded at startup."""
+
+    return request.app.state.model_metadata, request.app.state.lstm_model_metadata
+
+
 def get_prediction_service(
     request: Request,
     session: Session = Depends(get_session),
@@ -36,6 +42,8 @@ def get_prediction_service(
     return LightGBMVolatilityPredictionService(
         model=request.app.state.prediction_model,
         metadata=request.app.state.model_metadata,
+        lstm_model=request.app.state.lstm_model,
+        lstm_metadata=request.app.state.lstm_model_metadata,
         repository=MarketRepository(session),
         source=request.app.state.market_data_source,
     )

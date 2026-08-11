@@ -17,6 +17,7 @@ from src.ml.data import (
     TICKER_COLUMN,
     FeaturePreprocessor,
     inverse_target,
+    make_latest_sequence,
     make_sequence_arrays,
 )
 
@@ -109,6 +110,22 @@ class LSTMTrainingResult:
             ).detach().cpu().numpy()
         return inverse_target(values), metadata
 
+    def predict_latest(self, frame: pd.DataFrame) -> float:
+        """Predict one latest-date volatility value without requiring a future target."""
+
+        torch, _, _ = _torch_modules()
+        sequence, _ = make_latest_sequence(
+            frame,
+            self.preprocessor,
+            lookback=self.lookback,
+        )
+        self.model.network.eval()
+        with torch.no_grad():
+            value = self.model(
+                torch.from_numpy(sequence).to(self.device)
+            ).detach().cpu().numpy()
+        return float(inverse_target(value)[0])
+
     def save(self, path: str | Path) -> Path:
         """Save model state and preprocessing state for inference."""
 
@@ -140,7 +157,8 @@ class LSTMTrainingResult:
 
         import torch
 
-        payload = torch.load(path, map_location="cpu", weights_only=False)
+        artifact_path = Path(path)
+        payload = torch.load(artifact_path, map_location="cpu", weights_only=False)
         model = VolatilityLSTM(
             payload["input_size"],
             hidden_size=payload["hidden_size"],
@@ -153,10 +171,19 @@ class LSTMTrainingResult:
             preprocessor=payload["preprocessor"],
             lookback=payload["lookback"],
             device="cpu",
-            history=pd.read_csv(Path(path).with_suffix(".history.csv"))
-            if Path(path).with_suffix(".history.csv").exists()
-            else pd.DataFrame(),
+            history=cls._load_history(artifact_path.with_suffix(".history.csv")),
         )
+
+    @staticmethod
+    def _load_history(path: Path) -> pd.DataFrame:
+        """Read optional history without making it a serving-time requirement."""
+
+        if not path.is_file() or path.stat().st_size == 0:
+            return pd.DataFrame()
+        try:
+            return pd.read_csv(path)
+        except pd.errors.EmptyDataError:
+            return pd.DataFrame()
 
 
 def train_lstm(

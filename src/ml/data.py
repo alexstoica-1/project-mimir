@@ -189,3 +189,31 @@ def make_sequence_arrays(
         np.asarray(targets, dtype=np.float32),
         pd.DataFrame(metadata),
     )
+
+
+def make_latest_sequence(
+    frame: pd.DataFrame,
+    preprocessor: FeaturePreprocessor,
+    *,
+    lookback: int,
+) -> tuple[np.ndarray, pd.DataFrame]:
+    """Build one target-free, ticker-isolated sequence for live LSTM inference."""
+
+    if lookback < 1:
+        raise ValueError("lookback must be positive")
+    required = {TICKER_COLUMN, DATE_COLUMN, *preprocessor.feature_columns}
+    missing = sorted(required - set(frame.columns))
+    if missing:
+        raise ValueError(f"frame is missing LSTM inference columns: {', '.join(missing)}")
+
+    work = frame.sort_values([TICKER_COLUMN, DATE_COLUMN], kind="stable").copy()
+    tickers = work[TICKER_COLUMN].astype(str).unique()
+    if len(tickers) != 1:
+        raise ValueError("live LSTM inference requires exactly one ticker")
+    if len(work) < lookback:
+        raise ValueError(f"LSTM requires at least {lookback} complete feature rows")
+
+    latest_window = work.tail(lookback)
+    transformed = preprocessor.transform(latest_window).to_numpy(dtype=np.float32)
+    metadata = latest_window.loc[:, [TICKER_COLUMN, DATE_COLUMN]].tail(1).reset_index(drop=True)
+    return transformed[np.newaxis, :, :], metadata

@@ -26,17 +26,18 @@ models, and serves the selected model through FastAPI.
           +--> model-ready CSV --> GARCH / LightGBM / LSTM training --> MLflow
           |                                                    |
           |                                                    v
-          |                                      lightgbm_global.joblib
+          |                         lightgbm_global.joblib + lstm_global.pt
           |
-          +--> inference-ready latest feature row --> FastAPI --> prediction JSON
+          +--> inference-ready causal feature history --> FastAPI --> LightGBM + LSTM prediction JSON
 ```
 
 There are two distinct flows:
 
 1. **Training:** build a CSV with historical targets, split it chronologically,
    train and compare models, and save the chosen artifact.
-2. **Serving:** load the saved global LightGBM model once, read the latest
-   PostgreSQL price history, build only causal features, and return a forecast.
+2. **Serving:** load the saved global LightGBM champion and global LSTM once,
+   read the latest PostgreSQL price history, build only causal features, and
+   return both forecasts from the same market date.
 
 The serving flow never requires `target_rv_20d`, because that target represents
 future volatility and is unknown on the latest market date.
@@ -141,22 +142,24 @@ models/volatility/lightgbm_global.joblib
 Its MLflow registered-model name is `mimir-lightgbm-global`; version `1` is
 currently assigned the `champion` alias.
 
-## Serving the LightGBM model
+## Serving the LightGBM and LSTM models
 
-FastAPI loads the saved artifact once at startup. For a request such as
+FastAPI loads the saved LightGBM and LSTM artifacts once at startup. For a request such as
 `POST /v1/predictions/AAPL`, the application:
 
 1. verifies that AAPL is one of the tickers used to train the model;
 2. reads AAPL, SPY, and VIX history from PostgreSQL;
-3. builds the latest complete causal feature row;
-4. predicts the next 20-trading-day annualized realized volatility; and
-5. returns the ticker, feature date, prediction, model name, and model version.
+3. builds complete causal feature rows through the latest usable date;
+4. gives the latest row to LightGBM and the latest 60 rows to the LSTM;
+5. predicts the next 20-trading-day annualized realized volatility with both models; and
+6. returns the ticker, feature date, champion identity, and both model versions.
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /health` | Confirms that the API can reach PostgreSQL and has loaded the model. |
-| `GET /v1/model` | Returns model version, supported tickers, feature count, and training parameters. |
-| `POST /v1/predictions/{ticker}` | Returns the latest 20-trading-day volatility forecast. |
+| `GET /health` | Confirms that the API can reach PostgreSQL and has loaded both models. |
+| `GET /v1/model` | Returns the LightGBM champion and LSTM catalog, including version, target, horizon, and input requirements. |
+| `POST /v1/predictions/{ticker}` | Returns the latest 20-trading-day volatility forecasts from both models. |
+| `GET /v1/market-summary/{ticker}` | Returns the latest causal price, return, volatility, drawdown, and volume indicators. |
 | `GET /v1/market-data/{ticker}?range=1y` | Returns causal engineered history for a trained ticker; ranges are `3m`, `6m`, or `1y`. |
 
 Example response:
@@ -165,11 +168,14 @@ Example response:
 {
   "ticker": "AAPL",
   "as_of_date": "2026-08-07",
-  "predicted_rv_20d": 0.2656817,
+  "target_name": "target_rv_20d",
   "unit": "annualized_decimal_volatility",
   "forecast_horizon_trading_days": 20,
-  "model_name": "lightgbm-global",
-  "model_version": "..."
+  "champion_model_id": "lightgbm-global",
+  "predictions": [
+    {"model_id": "lightgbm-global", "display_name": "LightGBM", "model_version": "...", "predicted_rv_20d": 0.2656817},
+    {"model_id": "lstm-global", "display_name": "LSTM", "model_version": "...", "predicted_rv_20d": 0.2619021}
+  ]
 }
 ```
 
@@ -180,10 +186,13 @@ SPY/VIX context, and `503` when the model cannot serve a valid prediction.
 ### Browser dashboard
 
 The API also serves a small dashboard at `GET /`. It loads the supported ticker
-list from `/v1/model`, requests forecasts through the same prediction endpoint,
-and displays the annualized 20-day forecast with the model metadata. It also
+list from `/v1/model`, requests both forecasts through the same prediction endpoint,
+and displays LightGBM as the champion alongside the LSTM comparison. Its model
+details box lets you select either model to view its version, target, horizon,
+feature count, and input requirement. It also
 provides 3-month, 6-month, and 1-year market-history controls that show native
-adjusted-close and `rv_20d` charts plus the latest 20 causal indicator rows.
+adjusted-close and `rv_20d` charts, a current market snapshot, and the latest
+20 causal indicator rows.
 
 When the Docker stack is running, open:
 

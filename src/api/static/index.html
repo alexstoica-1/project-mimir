@@ -48,8 +48,8 @@
       </section>
 
       <section id="result-card" class="panel result-card is-hidden" aria-live="polite">
-        <p class="eyebrow">Predicted volatility</p>
-        <p id="forecast-value" class="forecast-value">—</p>
+        <p class="eyebrow">Model comparison</p>
+        <div id="forecast-predictions" class="forecast-grid"></div>
         <p class="forecast-label">Annualized, next 20 trading days</p>
         <div class="result-details">
           <div>
@@ -175,10 +175,14 @@
       <section class="panel model-panel" aria-labelledby="model-heading">
         <div class="panel-heading">
           <div>
-            <p class="eyebrow">Deployed model</p>
+            <p class="eyebrow">Models</p>
             <h2 id="model-heading">Model details</h2>
           </div>
         </div>
+        <label class="model-selector-label" for="model-selector">View model</label>
+        <select id="model-selector" class="model-selector" disabled>
+          <option>Loading models…</option>
+        </select>
         <dl class="model-details">
           <div>
             <dt>Model</dt>
@@ -189,12 +193,20 @@
             <dd id="model-version">—</dd>
           </div>
           <div>
-            <dt>Features</dt>
-            <dd id="feature-count">—</dd>
+            <dt>Target</dt>
+            <dd id="model-target">—</dd>
           </div>
           <div>
             <dt>Horizon</dt>
             <dd id="forecast-horizon">—</dd>
+          </div>
+          <div>
+            <dt>Features</dt>
+            <dd id="feature-count">—</dd>
+          </div>
+          <div>
+            <dt>Input</dt>
+            <dd id="model-input">—</dd>
           </div>
         </dl>
       </section>

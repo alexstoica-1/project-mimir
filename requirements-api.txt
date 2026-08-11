@@ -1,3 +1,5 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 fastapi==0.139.2
 joblib==1.5.3
 lightgbm==4.7.0
@@ -8,4 +10,5 @@ pydantic==2.13.4
 pydantic-settings==2.14.2
 scikit-learn==1.9.0
 SQLAlchemy==2.0.51
+torch==2.13.0+cpu
 uvicorn==0.51.0
