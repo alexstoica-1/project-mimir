@@ -37,6 +37,7 @@ def predict_latest_volatility(
 
     return PredictionResponse(
         ticker=forecast.ticker,
+        company_name=forecast.company_name,
         as_of_date=forecast.as_of_date,
         target_description=TARGET_DESCRIPTION,
         forecast_horizon_trading_days=FORECAST_HORIZON_TRADING_DAYS,

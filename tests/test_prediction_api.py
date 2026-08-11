@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from copy import deepcopy
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -61,6 +62,13 @@ class FakeMarketRepository:
 
     def company_exists(self, ticker: str) -> bool:
         return ticker in self.frames and ticker not in {"SPY", "^VIX"}
+
+    def get_company(self, ticker: str) -> SimpleNamespace | None:
+        """Return deterministic company metadata for prediction-response tests."""
+
+        names = {"AAPL": "Apple Inc.", "MSFT": "Microsoft Corporation"}
+        name = names.get(ticker)
+        return SimpleNamespace(company_name=name) if name else None
 
     def latest_price_date(self, ticker: str, source: str = "yfinance") -> date | None:
         frame = self.frames.get(ticker, pd.DataFrame())
@@ -194,6 +202,7 @@ def test_prediction_service_uses_latest_targetless_feature_row(prediction_servic
     predictions = {item.model.name: item for item in forecast.predictions}
 
     assert forecast.ticker == "AAPL"
+    assert forecast.company_name == "Apple Inc."
     assert forecast.as_of_date == date(2024, 7, 1)
     assert forecast.champion_model_id == "lightgbm-global"
     assert set(predictions) == {"lightgbm-global", "lstm-global"}
@@ -297,6 +306,7 @@ def test_api_health_model_and_prediction_routes(trained_artifact, trained_lstm_a
     assert [item["model_id"] for item in model.json()["models"]] == ["lightgbm-global", "lstm-global"]
     assert prediction.status_code == 200
     assert prediction.json()["ticker"] == "AAPL"
+    assert prediction.json()["company_name"] == "Apple Inc."
     assert prediction.json()["champion_model_id"] == "lightgbm-global"
     assert {item["model_id"] for item in prediction.json()["predictions"]} == {
         "lightgbm-global", "lstm-global",
@@ -478,5 +488,6 @@ def test_dashboard_and_static_assets_are_served(trained_artifact, trained_lstm_a
     assert 'fetch("/v1/model")' in script.text
     assert "model.models" in script.text
     assert "/v1/predictions/${encodeURIComponent(ticker)}" in script.text
+    assert "prediction.company_name" in script.text
     assert "/v1/market-summary/${encodeURIComponent(ticker)}" in script.text
     assert "/v1/market-data/${encodeURIComponent(ticker)}?range=${historyState.range}" in script.text

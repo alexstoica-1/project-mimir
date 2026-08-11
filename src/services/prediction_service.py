@@ -74,6 +74,7 @@ class VolatilityPrediction:
     """Latest-date forecasts from every model served by this API."""
 
     ticker: str
+    company_name: str
     as_of_date: date
     champion_model_id: str
     predictions: tuple["ModelForecast", ...]
@@ -216,6 +217,9 @@ class LightGBMVolatilityPredictionService:
         """Predict the next 20-day realized volatility with both served models."""
 
         normalized_ticker, features = self._get_usable_inference_features(ticker)
+        company = self.repository.get_company(normalized_ticker)  # type: ignore[attr-defined]
+        if company is None:
+            raise TickerNotFoundError(f"No company metadata exists for ticker {normalized_ticker}")
         latest_features = features.iloc[[-1]].copy()
         as_of_date = pd.Timestamp(latest_features["date"].iloc[0]).date()
 
@@ -235,6 +239,7 @@ class LightGBMVolatilityPredictionService:
             raise PredictionUnavailableError("LSTM model produced an invalid volatility prediction")
         return VolatilityPrediction(
             ticker=normalized_ticker,
+            company_name=company.company_name,
             as_of_date=as_of_date,
             champion_model_id=CHAMPION_MODEL_ID,
             predictions=(

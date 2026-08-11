@@ -45,6 +45,7 @@ class PredictionResponse(BaseModel):
     """Latest-date volatility forecasts from every served model."""
 
     ticker: str
+    company_name: str
     as_of_date: date
     target_name: Literal["target_rv_20d"] = "target_rv_20d"
     target_description: str

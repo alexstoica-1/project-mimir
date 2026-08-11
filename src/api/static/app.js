@@ -333,7 +333,7 @@ async function requestPrediction(event) {
     }
 
     renderForecasts(prediction);
-    elements.resultTicker.textContent = prediction.ticker;
+    elements.resultTicker.textContent = `${prediction.company_name} (${prediction.ticker})`;
     elements.asOfDate.textContent = formatDate(prediction.as_of_date);
     elements.resultCard.classList.remove("is-hidden");
     await loadMarketSummary(prediction.ticker);
