@@ -160,7 +160,7 @@ FastAPI loads the saved LightGBM and LSTM artifacts once at startup. For a reque
 | `GET /v1/model` | Returns the LightGBM champion and LSTM catalog, including version, target, horizon, and input requirements. |
 | `POST /v1/predictions/{ticker}` | Returns the latest 20-trading-day volatility forecasts from both models. |
 | `GET /v1/market-summary/{ticker}` | Returns the latest causal price, return, volatility, drawdown, and volume indicators. |
-| `GET /v1/market-data/{ticker}?range=1y` | Returns causal engineered history for a trained ticker; ranges are `3m`, `6m`, or `1y`. |
+| `GET /v1/market-data/{ticker}?range=1y` | Returns causal engineered history for a trained ticker; ranges are `1m`, `3m`, `6m`, `1y`, or `5y` trading observations. |
 
 Example response:
 

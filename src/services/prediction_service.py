@@ -19,11 +19,12 @@ FORECAST_HORIZON_TRADING_DAYS = 20
 CHAMPION_MODEL_ID = "lightgbm-global"
 TARGET_NAME = "target_rv_20d"
 TARGET_DESCRIPTION = "20-trading-day annualized realized volatility"
-MARKET_HISTORY_RANGES = {"3m": 63, "6m": 126, "1y": 252}
+MARKET_HISTORY_RANGES = {"1m": 21, "3m": 63, "6m": 126, "1y": 252, "5y": 1260}
 MARKET_HISTORY_COLUMNS = [
     "date",
     "adjusted_close",
     "rv_20d",
+    "return_5d",
     "return_20d",
     "drawdown",
     "volume_ratio_20d",
@@ -95,6 +96,7 @@ class MarketHistoryPoint:
     date: date
     adjusted_close: float
     rv_20d: float
+    return_5d: float
     return_20d: float
     drawdown: float
     volume_ratio_20d: float
@@ -290,6 +292,7 @@ class LightGBMVolatilityPredictionService:
                 date=pd.Timestamp(row.date).date(),
                 adjusted_close=float(row.adjusted_close),
                 rv_20d=float(row.rv_20d),
+                return_5d=float(row.return_5d),
                 return_20d=float(row.return_20d),
                 drawdown=float(row.drawdown),
                 volume_ratio_20d=float(row.volume_ratio_20d),

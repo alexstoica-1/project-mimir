@@ -20,7 +20,7 @@ from src.services.prediction_service import (
 )
 
 router = APIRouter(prefix="/v1", tags=["market data"])
-HistoryRange = Annotated[Literal["3m", "6m", "1y"], Query(alias="range")]
+HistoryRange = Annotated[Literal["1m", "3m", "6m", "1y", "5y"], Query(alias="range")]
 
 
 @router.get("/market-summary/{ticker}", response_model=MarketSummaryResponse)

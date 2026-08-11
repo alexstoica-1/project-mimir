@@ -273,6 +273,7 @@ function renderHistoryTable(points) {
       formatDate(point.date),
       formatNumber(point.adjusted_close),
       formatPercent(point.rv_20d),
+      formatPercent(point.return_5d),
       formatPercent(point.return_20d),
       formatPercent(point.drawdown),
       `${formatNumber(point.volume_ratio_20d)}x`,

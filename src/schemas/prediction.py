@@ -61,6 +61,7 @@ class MarketHistoryPointResponse(BaseModel):
     date: date
     adjusted_close: float
     rv_20d: float = Field(ge=0)
+    return_5d: float
     return_20d: float
     drawdown: float
     volume_ratio_20d: float = Field(ge=0)
@@ -70,7 +71,7 @@ class MarketHistoryResponse(BaseModel):
     """Recent engineered market history for one ticker and requested range."""
 
     ticker: str
-    range: Literal["3m", "6m", "1y"]
+    range: Literal["1m", "3m", "6m", "1y", "5y"]
     available_observations: int = Field(ge=1)
     points: list[MarketHistoryPointResponse]
 

@@ -171,10 +171,10 @@ def market_history_service(trained_artifact, trained_lstm_artifact):
     lstm_path, lstm_model = trained_lstm_artifact
     repository = FakeMarketRepository(
         {
-            "AAPL": _synthetic_prices("AAPL", periods=400),
-            "SPY": _synthetic_prices("SPY", periods=400),
-            "^VIX": _synthetic_prices("^VIX", periods=400),
-            "MSFT": _synthetic_prices("MSFT", periods=400),
+            "AAPL": _synthetic_prices("AAPL", periods=1400),
+            "SPY": _synthetic_prices("SPY", periods=1400),
+            "^VIX": _synthetic_prices("^VIX", periods=1400),
+            "MSFT": _synthetic_prices("MSFT", periods=1400),
         }
     )
     return LightGBMVolatilityPredictionService(
@@ -370,7 +370,9 @@ def test_api_returns_market_history_and_expected_errors(trained_artifact, traine
     app.dependency_overrides[get_prediction_service] = lambda: market_history_service
 
     with TestClient(app) as client:
+        history_1m = client.get("/v1/market-data/AAPL?range=1m")
         history = client.get("/v1/market-data/AAPL?range=3m")
+        history_5y = client.get("/v1/market-data/AAPL?range=5y")
         unsupported = client.get("/v1/market-data/MSFT?range=3m")
         missing = client.get("/v1/market-data/ZZZ?range=3m")
         invalid_range = client.get("/v1/market-data/AAPL?range=2y")
@@ -381,8 +383,14 @@ def test_api_returns_market_history_and_expected_errors(trained_artifact, traine
     assert response["range"] == "3m"
     assert len(response["points"]) == 63
     assert set(response["points"][0]) == {
-        "date", "adjusted_close", "rv_20d", "return_20d", "drawdown", "volume_ratio_20d",
+        "date", "adjusted_close", "rv_20d", "return_5d", "return_20d", "drawdown", "volume_ratio_20d",
     }
+    assert history_1m.status_code == 200
+    assert history_1m.json()["range"] == "1m"
+    assert len(history_1m.json()["points"]) == 21
+    assert history_5y.status_code == 200
+    assert history_5y.json()["range"] == "5y"
+    assert len(history_5y.json()["points"]) == 1260
     assert unsupported.status_code == 422
     assert missing.status_code == 404
     assert invalid_range.status_code == 422
@@ -479,6 +487,9 @@ def test_dashboard_and_static_assets_are_served(trained_artifact, trained_lstm_a
 
     assert dashboard.status_code == 200
     assert "Volatility Forecast and Market Data" in dashboard.text
+    assert "Market Intelligence" not in dashboard.text
+    assert 'class="brand-mark"' not in dashboard.text
+    assert "Return 5D" in dashboard.text
     assert 'id="forecast-predictions"' in dashboard.text
     assert 'id="model-selector"' in dashboard.text
     assert 'href="/static/styles.css"' in dashboard.text
@@ -495,3 +506,6 @@ def test_dashboard_and_static_assets_are_served(trained_artifact, trained_lstm_a
     assert "/v1/market-data/${encodeURIComponent(ticker)}?range=${historyState.range}" in script.text
     assert "const historyTableRowLimit = 10" in script.text
     assert "Showing latest ${displayedRows} of ${history.points.length} selected rows" in script.text
+    assert 'data-range="1m"' in dashboard.text
+    assert 'data-range="5y"' in dashboard.text
+    assert "point.return_5d" in script.text
