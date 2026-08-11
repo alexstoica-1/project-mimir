@@ -1,12 +1,10 @@
 # Market Data and Volatility Forecasting Platform
 
-## DEMO 
-https://github.com/user-attachments/assets/46b05c1d-376d-42ea-a49a-f88cbc33c6b2
+An end-to-end financial data and machine learning platform that ingests and stores market data, engineers time-series and volatility features, trains and evaluates forecasting models, and serves 20-day realized volatility predictions through a FastAPI application.
 
-Market Intelligence & Machine-learning for Investment Research (MIMIR) is a
-market-data and volatility-forecasting project. It collects daily market data,
-stores it in PostgreSQL, builds causal volatility features, trains forecasting
-models, and serves the selected model through FastAPI.
+## DEMO 
+https://github.com/user-attachments/assets/6425a19d-2b51-4bf1-a880-ba35225b2bac
+
 
 ## Implemented architecture
 
